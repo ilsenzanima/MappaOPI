@@ -4,6 +4,7 @@ import { SavedProject } from '../types';
 import { getProjects, deleteProject } from '../db';
 import { Trash2, FolderOpen, Archive, X, FileImage, Calendar } from 'lucide-react';
 import JSZip from 'jszip';
+import { renderMapToBlob } from '../utils';
 
 interface ProjectManagerProps {
   isOpen: boolean;
@@ -58,11 +59,18 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ isOpen, onClose,
         }, null, 2);
         zip.file(`${project.planName}.json`, jsonContent);
 
-        // Add Image
+        // Add Base Image (Source)
         // Convert Base64 to Blob
         const fetchRes = await fetch(project.imageData);
         const blob = await fetchRes.blob();
         zip.file(project.imageName || 'image.png', blob);
+
+        // Add Rendered Map Image (with markers)
+        // We reuse the utility to generate it from the stored data
+        const mapBlob = await renderMapToBlob(project.imageData, project.points, project.markerScale || 1);
+        if (mapBlob) {
+            zip.file(`${project.planName}_mappa.jpg`, mapBlob);
+        }
 
         // Generate Zip
         const content = await zip.generateAsync({ type: "blob" });
