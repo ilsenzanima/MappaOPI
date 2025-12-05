@@ -4,9 +4,9 @@ import { Marker } from './components/Marker';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { ProjectManager } from './components/ProjectManager';
-import { MapPoint, ProjectState, InteractionMode, PointType, SavedProject } from './types';
+import { MapPoint, ProjectState, InteractionMode, PointType, SavedProject, MapLine, LineColor } from './types';
 import { PointIcon } from './components/PointIcons';
-import { Maximize, Check } from 'lucide-react';
+import { Maximize, Check, Trash2 } from 'lucide-react';
 import { saveProject } from './db';
 import { renderMapToBlob } from './utils';
 
@@ -20,6 +20,7 @@ const generateId = () => {
 export default function App() {
   // State: Data
   const [points, setPoints] = useState<MapPoint[]>([]);
+  const [lines, setLines] = useState<MapLine[]>([]);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [imageName, setImageName] = useState<string | null>(null);
   // NEW: Track natural image dimensions to calculate correct scaled width/height
@@ -34,9 +35,12 @@ export default function App() {
   // State: UI & Modes
   const [mode, setMode] = useState<InteractionMode>('pan');
   const [activePointType, setActivePointType] = useState<PointType>('generic');
+  const [activeLineColor, setActiveLineColor] = useState<LineColor>('#dc2626');
+  
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [scale, setScale] = useState(1);
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
+  const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   
   // State: Modals
   const [showProjectModal, setShowProjectModal] = useState(false); 
@@ -48,7 +52,7 @@ export default function App() {
   const [draggingPointId, setDraggingPointId] = useState<string | null>(null);
   const [dragType, setDragType] = useState<'badge' | 'target'>('badge');
   
-  // Creation state (Add Mode)
+  // Creation state (Add Point / Line)
   const [creationStart, setCreationStart] = useState<{x: number, y: number} | null>(null);
   const [currentMousePos, setCurrentMousePos] = useState<{x: number, y: number} | null>(null);
 
@@ -65,6 +69,7 @@ export default function App() {
 
   const resetProject = () => {
       setPoints([]);
+      setLines([]);
       setPlanName('');
       setFloor('');
       setImageSrc(null);
@@ -101,9 +106,6 @@ export default function App() {
       const rotatedDx = dx * cos - dy * sin;
       const rotatedDy = dx * sin + dy * cos;
       
-      // Removed division by scale here because containerRef is physically resized.
-      // Its offsetWidth includes the scale factor.
-      
       const width = containerRef.current.offsetWidth;
       const height = containerRef.current.offsetHeight;
       
@@ -130,6 +132,7 @@ export default function App() {
             rotation,
             markerScale,
             points,
+            lines,
             imageData: imageSrc
         });
         setCurrentProjectId(id);
@@ -142,6 +145,7 @@ export default function App() {
 
   const handleLoadSavedProject = async (p: SavedProject) => {
       setPoints(p.points);
+      setLines(p.lines || []);
       setPlanName(p.planName);
       setFloor(p.floor);
       setImageName(p.imageName);
@@ -198,6 +202,7 @@ export default function App() {
                 setImgSize(dims);
                 setImageName(tempImageFile.name);
                 setPoints([]);
+                setLines([]);
                 setScale(1);
                 setRotation(0);
                 setCurrentProjectId(undefined); 
@@ -213,7 +218,7 @@ export default function App() {
   // --- Handlers: Map Interaction (Creation & Dragging) ---
 
   const handleMapMouseDown = (e: React.MouseEvent) => {
-      if (mode === 'add') {
+      if (mode === 'add' || mode === 'line') {
          if (!imageSrc || !containerRef.current) return;
          const coords = getRelativeCoordinates(e.clientX, e.clientY);
          if (coords.x < 0 || coords.x > 100 || coords.y < 0 || coords.y > 100) return;
@@ -221,14 +226,20 @@ export default function App() {
          setCreationStart(coords);
          setCurrentMousePos(coords);
       }
+      
+      // Deselect line if clicking on empty space
+      if (mode !== 'pan') {
+          setSelectedLineId(null);
+      }
   };
 
   const handleMapMouseUp = (e: React.MouseEvent) => {
-      if (mode === 'add' && creationStart) {
-          const endCoords = getRelativeCoordinates(e.clientX, e.clientY);
-          
-          // Determine if it was a drag or a click
-          // We calculate distance in percentages, which is rough but okay
+      if (!creationStart) return;
+
+      const endCoords = getRelativeCoordinates(e.clientX, e.clientY);
+      
+      if (mode === 'add') {
+          // ADD POINT LOGIC
           const dx = endCoords.x - creationStart.x;
           const dy = endCoords.y - creationStart.y;
           const dist = Math.sqrt(dx*dx + dy*dy);
@@ -236,34 +247,48 @@ export default function App() {
           const newPoint: MapPoint = {
               id: generateId(),
               number: points.length + 1,
-              x: endCoords.x, // Badge Position (Mouse Up)
+              x: endCoords.x, 
               y: endCoords.y,
               type: activePointType,
               description: '',
               createdAt: Date.now(),
           };
 
-          // If dragged significantly (> 1% of screen), use start point as target
           if (dist > 1.0) {
-              newPoint.targetX = creationStart.x; // Arrow/Target Position (Mouse Down)
+              newPoint.targetX = creationStart.x;
               newPoint.targetY = creationStart.y;
           } else {
-              // Standard point, target = x,y (can imply no line)
               newPoint.targetX = endCoords.x;
               newPoint.targetY = endCoords.y;
           }
 
           setPoints(prev => [...prev, newPoint]);
           setSelectedPointId(newPoint.id);
-          setCreationStart(null);
-          setCurrentMousePos(null);
+      } else if (mode === 'line') {
+          // ADD LINE LOGIC
+          const dx = endCoords.x - creationStart.x;
+          const dy = endCoords.y - creationStart.y;
+          // Avoid zero-length lines
+          if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
+              const newLine: MapLine = {
+                  id: generateId(),
+                  startX: creationStart.x,
+                  startY: creationStart.y,
+                  endX: endCoords.x,
+                  endY: endCoords.y,
+                  color: activeLineColor
+              };
+              setLines(prev => [...prev, newLine]);
+          }
       }
+
+      setCreationStart(null);
+      setCurrentMousePos(null);
   };
 
-  // --- Handlers: Markers ---
+  // --- Handlers: Markers & Lines ---
 
   const handleMarkerMouseDown = (e: React.MouseEvent, id: string) => {
-      // Prevent creating a new point when clicking existing marker
       e.stopPropagation();
       e.preventDefault();
 
@@ -285,6 +310,17 @@ export default function App() {
       }
   };
 
+  const handleLineClick = (e: React.MouseEvent, id: string) => {
+      if (mode === 'pan') return; 
+      e.stopPropagation();
+      setSelectedLineId(id);
+  };
+
+  const handleDeleteLine = (id: string) => {
+      setLines(prev => prev.filter(l => l.id !== id));
+      setSelectedLineId(null);
+  };
+
   const updatePoint = (id: string, data: Partial<MapPoint>) => {
       setPoints(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
   };
@@ -297,14 +333,14 @@ export default function App() {
              if (p.id !== draggingPointId) return p;
              
              if (dragType === 'target') {
-                 // Move the arrow tip (start)
+                 // Move the arrow tip
                  return {
                      ...p,
                      targetX: Math.max(0, Math.min(100, x)),
                      targetY: Math.max(0, Math.min(100, y))
                  };
              } else {
-                 // Move the badge (end/symbol)
+                 // Move the badge
                  return { 
                      ...p, 
                      x: Math.max(0, Math.min(100, x)), 
@@ -314,8 +350,8 @@ export default function App() {
         }));
     }
 
-    // Handling Creation Drag Visuals
-    if (mode === 'add' && creationStart && containerRef.current) {
+    // Handling Creation Drag Visuals (Point or Line)
+    if ((mode === 'add' || mode === 'line') && creationStart && containerRef.current) {
         const coords = getRelativeCoordinates(e.clientX, e.clientY);
         setCurrentMousePos(coords);
     }
@@ -324,13 +360,11 @@ export default function App() {
 
   const handleGlobalMouseUp = useCallback(() => {
     setDraggingPointId(null);
-    // Also stop panning if it was active and mouse left window
     setIsPanning(false);
     document.body.style.cursor = '';
   }, []);
 
   useEffect(() => {
-    // We attach mouseup globally to handle drag releases outside the window
     window.addEventListener('mousemove', handleGlobalMouseMove);
     window.addEventListener('mouseup', handleGlobalMouseUp);
     return () => {
@@ -353,7 +387,7 @@ export default function App() {
   };
   const handleContainerMouseMove = (e: React.MouseEvent) => {
       if (!isPanning || !containerWrapperRef.current) return;
-      e.preventDefault(); // Prevent text selection/drag behaviors
+      e.preventDefault();
       const dx = e.clientX - panStart.x;
       const dy = e.clientY - panStart.y;
       containerWrapperRef.current.scrollLeft = scrollStart.left - dx;
@@ -377,7 +411,8 @@ export default function App() {
       imageName: imageName || '',
       rotation,
       markerScale,
-      points: points
+      points: points,
+      lines: lines
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -406,16 +441,17 @@ export default function App() {
             }
             const importedPoints = json.points.map(p => ({ ...p, type: p.type || 'generic' }));
             setPoints(importedPoints);
+            setLines(json.lines || []);
             setPlanName(json.planName || 'Importato');
             setFloor(json.floor || '');
             setRotation(json.rotation || 0);
             setMarkerScale(json.markerScale || 1);
-            setCurrentProjectId(undefined); // JSON import is not linked to DB initially
+            setCurrentProjectId(undefined); 
             if (json.imageName && json.imageName !== imageName) {
                 setPendingImageName(json.imageName);
                 setImageSrc(null); 
                 setImageName(null); 
-                setImgSize({ w: 0, h: 0 }); // reset size until image loaded
+                setImgSize({ w: 0, h: 0 });
             } else if (!imageName) {
                 setPendingImageName(json.imageName || 'unknown');
             }
@@ -428,11 +464,11 @@ export default function App() {
     e.target.value = '';
   };
 
-  // --- EXPORT IMAGE FUNCTION (HIGH FIDELITY) ---
+  // --- EXPORT IMAGE ---
   const handleExportImage = async () => {
       if (!imageSrc) return;
       
-      const blob = await renderMapToBlob(imageSrc, points, markerScale);
+      const blob = await renderMapToBlob(imageSrc, points, lines, markerScale);
       
       if (blob) {
           const url = URL.createObjectURL(blob);
@@ -464,6 +500,8 @@ export default function App() {
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
         activePointType={activePointType}
         setActivePointType={setActivePointType}
+        activeLineColor={activeLineColor}
+        setActiveLineColor={setActiveLineColor}
         onSaveProject={handleSaveProject}
         onOpenProjectManager={() => setShowManagerModal(true)}
         onExportImage={handleExportImage}
@@ -478,7 +516,7 @@ export default function App() {
           {/* Main Map Area */}
           <div className="flex-1 relative bg-slate-200 overflow-hidden">
              
-            {/* Modal: Project Details (New Project) */}
+            {/* Modal: Project Details */}
             {showProjectModal && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
@@ -542,20 +580,18 @@ export default function App() {
                 </div>
             )}
 
-            {/* Map Canvas - Scroller */}
+            {/* Map Canvas */}
             {imageSrc && (
                 <div 
                     ref={containerWrapperRef}
                     className={`absolute inset-0 overflow-auto bg-slate-200 grid place-items-center
                         ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''}
-                        ${mode === 'add' ? 'cursor-crosshair' : ''}
+                        ${(mode === 'add' || mode === 'line') ? 'cursor-crosshair' : ''}
                         ${mode === 'move' ? 'cursor-default' : ''}
                     `}
                     onMouseDown={handleContainerMouseDown}
                     onMouseMove={handleContainerMouseMove}
-                    // onMouseUp handled globally to prevent stuck drag
                 >
-                    {/* Using CSS Grid place-items-center + explicit width/height is robust for zooming */}
                     <div 
                         style={{ 
                             width: `${imgSize.w * scale}px`, 
@@ -563,7 +599,6 @@ export default function App() {
                         }}
                         className="relative shadow-2xl bg-white select-none flex-none"
                     >
-                        {/* The visual container with rotation */}
                         <div 
                             ref={containerRef} 
                             className="w-full h-full relative" 
@@ -573,8 +608,47 @@ export default function App() {
                         >
                             <img src={imageSrc} alt="Planimetria" className="w-full h-full object-contain pointer-events-none block" draggable={false} />
                             
-                            {/* Leader Lines SVG Layer */}
+                            {/* SVG Layer: Leader Lines & Drawn Lines */}
                             <svg className="absolute inset-0 w-full h-full z-0 pointer-events-none">
+                                {/* Drawn Lines */}
+                                {lines.map(line => (
+                                    <g key={line.id} className="pointer-events-auto cursor-pointer" onClick={(e) => handleLineClick(e, line.id)}>
+                                        {/* Invisible wider path for easier clicking */}
+                                        <line 
+                                            x1={`${line.startX}%`} y1={`${line.startY}%`} 
+                                            x2={`${line.endX}%`} y2={`${line.endY}%`} 
+                                            stroke="transparent" strokeWidth={15 * markerScale} 
+                                        />
+                                        {/* Visible Line */}
+                                        <line 
+                                            x1={`${line.startX}%`} y1={`${line.startY}%`} 
+                                            x2={`${line.endX}%`} y2={`${line.endY}%`} 
+                                            stroke={line.color} strokeWidth={3 * markerScale} 
+                                            strokeOpacity={0.8}
+                                            strokeLinecap="round"
+                                            className={selectedLineId === line.id ? 'filter drop-shadow-[0_0_2px_rgba(0,0,0,0.5)]' : ''}
+                                        />
+                                        {/* Selection Highlight */}
+                                        {selectedLineId === line.id && (
+                                            <line 
+                                                x1={`${line.startX}%`} y1={`${line.startY}%`} 
+                                                x2={`${line.endX}%`} y2={`${line.endY}%`} 
+                                                stroke="white" strokeWidth={1} strokeDasharray="4,4"
+                                            />
+                                        )}
+                                    </g>
+                                ))}
+
+                                {/* Drawing Preview Line */}
+                                {mode === 'line' && creationStart && currentMousePos && (
+                                    <line 
+                                        x1={`${creationStart.x}%`} y1={`${creationStart.y}%`} 
+                                        x2={`${currentMousePos.x}%`} y2={`${currentMousePos.y}%`} 
+                                        stroke={activeLineColor} strokeWidth={3 * markerScale} strokeOpacity={0.6}
+                                    />
+                                )}
+
+                                {/* Marker Leader Lines */}
                                 {points.map(p => {
                                     if (p.targetX !== undefined && p.targetY !== undefined && 
                                         (Math.abs(p.targetX - p.x) > 0.1 || Math.abs(p.targetY - p.y) > 0.1)) {
@@ -585,7 +659,6 @@ export default function App() {
                                                     x2={`${p.x}%`} y2={`${p.y}%`} 
                                                     stroke="#dc2626" strokeWidth={2 * markerScale} strokeLinecap="round" 
                                                 />
-                                                {/* Target Dot - Now Interactive */}
                                                 <circle 
                                                     cx={`${p.targetX}%`} cy={`${p.targetY}%`} r={3 * markerScale} fill="#dc2626" 
                                                     className={mode === 'move' ? 'cursor-move pointer-events-auto hover:fill-blue-600' : ''}
@@ -596,7 +669,8 @@ export default function App() {
                                     }
                                     return null;
                                 })}
-                                {/* Creation Preview Line */}
+                                
+                                {/* Point Creation Preview */}
                                 {mode === 'add' && creationStart && currentMousePos && (
                                      <g>
                                         <line 
@@ -608,6 +682,24 @@ export default function App() {
                                      </g>
                                 )}
                             </svg>
+                            
+                            {/* Delete Button for Selected Line (HTML Overlay) */}
+                            {selectedLineId && (() => {
+                                const line = lines.find(l => l.id === selectedLineId);
+                                if (!line) return null;
+                                const midX = (line.startX + line.endX) / 2;
+                                const midY = (line.startY + line.endY) / 2;
+                                return (
+                                    <button
+                                        onClick={() => handleDeleteLine(line.id)}
+                                        className="absolute z-20 bg-white text-red-600 rounded-full p-1 shadow-md border border-red-200 hover:bg-red-50"
+                                        style={{ left: `${midX}%`, top: `${midY}%`, transform: 'translate(-50%, -50%)' }}
+                                        title="Elimina Linea"
+                                    >
+                                        <Trash2 className="w-4 h-4" />
+                                    </button>
+                                );
+                            })()}
 
                             {points.map((point) => (
                                 <Marker

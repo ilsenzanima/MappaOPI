@@ -55,7 +55,8 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ isOpen, onClose,
             floor: project.floor,
             imageName: project.imageName,
             rotation: project.rotation,
-            points: project.points
+            points: project.points,
+            lines: project.lines || []
         }, null, 2);
         zip.file(`${project.planName}.json`, jsonContent);
 
@@ -65,9 +66,8 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ isOpen, onClose,
         const blob = await fetchRes.blob();
         zip.file(project.imageName || 'image.png', blob);
 
-        // Add Rendered Map Image (with markers)
-        // We reuse the utility to generate it from the stored data
-        const mapBlob = await renderMapToBlob(project.imageData, project.points, project.markerScale || 1);
+        // Add Rendered Map Image (with markers and lines)
+        const mapBlob = await renderMapToBlob(project.imageData, project.points, project.lines || [], project.markerScale || 1);
         if (mapBlob) {
             zip.file(`${project.planName}_mappa.jpg`, mapBlob);
         }

@@ -1,9 +1,10 @@
 
 import React from 'react';
-import { InteractionMode, PointType } from '../types';
+import { InteractionMode, PointType, LineColor } from '../types';
 import { 
   Hand, MousePointer2, PlusCircle, ZoomIn, ZoomOut, RotateCcw, 
-  Menu, Save, FolderCog, ImageDown, RefreshCw, Circle, CircleDashed
+  Menu, Save, FolderCog, ImageDown, RefreshCw, Circle, CircleDashed,
+  PenTool
 } from 'lucide-react';
 import { PointIcon, getPointTypeLabel } from './PointIcons';
 
@@ -19,6 +20,8 @@ interface TopbarProps {
   onToggleSidebar: () => void;
   activePointType: PointType;
   setActivePointType: (t: PointType) => void;
+  activeLineColor: LineColor;
+  setActiveLineColor: (c: LineColor) => void;
   onSaveProject: () => void;
   onOpenProjectManager: () => void;
   onExportImage: () => void;
@@ -39,6 +42,8 @@ export const Topbar: React.FC<TopbarProps> = ({
   onToggleSidebar,
   activePointType,
   setActivePointType,
+  activeLineColor,
+  setActiveLineColor,
   onSaveProject,
   onOpenProjectManager,
   onExportImage,
@@ -48,6 +53,14 @@ export const Topbar: React.FC<TopbarProps> = ({
   onDecreaseMarkerSize
 }) => {
   const availableTypes: PointType[] = ['generic', 'floor-single', 'wall-single', 'floor-multi', 'wall-multi'];
+  
+  const colors: { val: LineColor, label: string }[] = [
+      { val: '#dc2626', label: 'Rosso' },
+      { val: '#2563eb', label: 'Blu' },
+      { val: '#06b6d4', label: 'Azzurro' },
+      { val: '#16a34a', label: 'Verde' },
+      { val: '#f97316', label: 'Arancio' },
+  ];
 
   return (
     <div className="h-14 bg-slate-900 text-white flex items-center justify-between px-4 shadow-md z-50 flex-shrink-0">
@@ -102,6 +115,13 @@ export const Topbar: React.FC<TopbarProps> = ({
                 <PlusCircle className="w-5 h-5" />
             </button>
             <button 
+                onClick={() => setMode('line')}
+                className={`p-2 rounded ${mode === 'line' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
+                title="Disegna Linea"
+            >
+                <PenTool className="w-5 h-5" />
+            </button>
+            <button 
                 onClick={() => setMode('move')}
                 className={`p-2 rounded ${mode === 'move' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
                 title="Muovi Punti"
@@ -111,7 +131,7 @@ export const Topbar: React.FC<TopbarProps> = ({
             
             <div className="w-px h-5 bg-slate-600 mx-1"></div>
 
-            {/* Type Selector (Only in Add Mode) */}
+            {/* Type Selector (Add Mode) */}
             {mode === 'add' && (
                 <div className="flex items-center gap-1 px-1 border-r border-slate-600 mr-1 pr-2 animate-in fade-in slide-in-from-left-2">
                     {availableTypes.map(type => (
@@ -123,6 +143,21 @@ export const Topbar: React.FC<TopbarProps> = ({
                         >
                             <div className="w-4 h-4"><PointIcon type={type} /></div>
                         </button>
+                    ))}
+                </div>
+            )}
+
+             {/* Color Selector (Line Mode) */}
+             {mode === 'line' && (
+                <div className="flex items-center gap-1 px-1 border-r border-slate-600 mr-1 pr-2 animate-in fade-in slide-in-from-left-2">
+                    {colors.map(c => (
+                        <button
+                            key={c.val}
+                            onClick={() => setActiveLineColor(c.val)}
+                            title={c.label}
+                            className={`w-6 h-6 rounded-full border-2 transition-all ${activeLineColor === c.val ? 'border-white scale-110' : 'border-transparent hover:scale-105'}`}
+                            style={{ backgroundColor: c.val }}
+                        />
                     ))}
                 </div>
             )}

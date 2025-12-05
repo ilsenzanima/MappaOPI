@@ -1,5 +1,5 @@
 
-import { MapPoint, PointType } from './types';
+import { MapPoint, MapLine, PointType } from './types';
 import { getPointIconSVGString } from './components/PointIcons';
 
 /**
@@ -8,6 +8,7 @@ import { getPointIconSVGString } from './components/PointIcons';
 export const renderMapToBlob = async (
     imageSrc: string, 
     points: MapPoint[], 
+    lines: MapLine[] = [],
     markerScale: number = 1
 ): Promise<Blob | null> => {
     try {
@@ -44,6 +45,27 @@ export const renderMapToBlob = async (
         const badgeSize = basePixelSize * 0.4;
         const fontSize = badgeSize * 0.7;
 
+        // --- DRAW LINES (User Drawn) ---
+        // Render these first so markers appear on top
+        if (lines && lines.length > 0) {
+            ctx.lineCap = 'round';
+            for (const line of lines) {
+                const sx = (line.startX / 100) * canvas.width;
+                const sy = (line.startY / 100) * canvas.height;
+                const ex = (line.endX / 100) * canvas.width;
+                const ey = (line.endY / 100) * canvas.height;
+
+                ctx.beginPath();
+                ctx.moveTo(sx, sy);
+                ctx.lineTo(ex, ey);
+                ctx.strokeStyle = line.color;
+                ctx.lineWidth = basePixelSize * 0.12; // Slightly thicker than marker leads
+                ctx.globalAlpha = 0.8;
+                ctx.stroke();
+                ctx.globalAlpha = 1.0;
+            }
+        }
+
         // Helper to load an image from SVG string
         const loadSvgIcon = (svgString: string): Promise<HTMLImageElement> => {
             return new Promise((resolve, reject) => {
@@ -67,7 +89,7 @@ export const renderMapToBlob = async (
             }
         }
 
-        // --- FIRST PASS: Draw Leader Lines (Behind Markers) ---
+        // --- DRAW MARKER LEADER LINES ---
         ctx.strokeStyle = '#dc2626'; // Red-600
         ctx.lineWidth = basePixelSize * 0.08;
         ctx.lineCap = 'round';
@@ -97,7 +119,7 @@ export const renderMapToBlob = async (
              }
         }
 
-        // --- SECOND PASS: Draw Markers ---
+        // --- DRAW MARKERS ---
         for (const point of points) {
             const x = (point.x / 100) * canvas.width;
             const y = (point.y / 100) * canvas.height;

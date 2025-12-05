@@ -1,7 +1,9 @@
 
-export type InteractionMode = 'pan' | 'add' | 'move';
+export type InteractionMode = 'pan' | 'add' | 'move' | 'line';
 
 export type PointType = 'generic' | 'floor-single' | 'wall-single' | 'floor-multi' | 'wall-multi';
+
+export type LineColor = '#dc2626' | '#2563eb' | '#06b6d4' | '#16a34a' | '#f97316'; // Red, Blue, Cyan, Green, Orange
 
 export interface MapPoint {
   id: string;
@@ -15,6 +17,15 @@ export interface MapPoint {
   createdAt: number;
 }
 
+export interface MapLine {
+  id: string;
+  startX: number; // Percentage
+  startY: number;
+  endX: number;
+  endY: number;
+  color: LineColor;
+}
+
 export interface ProjectState {
   version: number;
   planName: string;
@@ -23,6 +34,7 @@ export interface ProjectState {
   rotation: number; // Rotation in degrees
   markerScale: number; // Scale factor for markers (0.5 to 3.0)
   points: MapPoint[];
+  lines: MapLine[];
 }
 
 export interface DragState {
