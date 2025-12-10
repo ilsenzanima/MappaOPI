@@ -26,8 +26,13 @@ export const Marker: React.FC<MarkerProps> = ({
   
   const baseSize = 40 * markerScale;
   const markerSize = baseSize; 
-  const badgeSize = (baseSize / 2.2);
-  const badgeFontSize = (baseSize / 3.5);
+  
+  // INCREASED BADGE SIZE
+  // Was baseSize / 2.2 -> Now baseSize / 1.7 (Bigger circle)
+  const badgeSize = (baseSize / 1.7);
+  // Was baseSize / 3.5 -> Now baseSize / 2.6 (Bigger font)
+  const badgeFontSize = (baseSize / 2.6);
+  
   const iconSize = (baseSize / 1.6);
 
   return (
@@ -64,7 +69,7 @@ export const Marker: React.FC<MarkerProps> = ({
         {/* The Number Badge (Top Right) */}
         <div 
           className={`
-            absolute -top-1 -right-1 flex items-center justify-center rounded-full shadow-sm font-bold border
+            absolute -top-2 -right-2 flex items-center justify-center rounded-full shadow-sm font-bold border
             ${isSelected ? 'bg-white text-blue-700 border-blue-700' : 'bg-red-600 text-white border-white'}
           `}
           style={{

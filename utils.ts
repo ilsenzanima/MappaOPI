@@ -52,8 +52,9 @@ export const generatePDF = async (
         // Adjust multiplier to scale elements appropriately for PDF view
         const baseSize = (width / 45) * markerScale; 
         
-        const badgeSize = baseSize * 0.4;
-        const fontSize = badgeSize * 0.6; // Slightly smaller for PDF text stability
+        // INCREASED BADGE SIZE for PDF
+        const badgeSize = baseSize * 0.6; 
+        const fontSize = badgeSize * 0.6; 
 
         // 2. Draw Lines (Vectors)
         lines.forEach(line => {
@@ -132,9 +133,9 @@ export const generatePDF = async (
                 doc.addImage(iconPng, 'PNG', x - iconW/2, y - iconH/2, iconW, iconH);
             }
 
-            // Badge Circle
-            const badgeX = x + baseSize/2.8; 
-            const badgeY = y - baseSize/2.8;
+            // Badge Circle (Offset slightly more to accommodate larger size)
+            const badgeX = x + baseSize/2.4; 
+            const badgeY = y - baseSize/2.4;
             
             doc.setFillColor('#dc2626');
             doc.setDrawColor('#ffffff');
@@ -198,8 +199,10 @@ export const renderMapToBlob = async (
         const logicalHeight = img.naturalHeight;
         
         const basePixelSize = (logicalWidth / 45) * markerScale; 
-        const badgeSize = basePixelSize * 0.4;
-        const fontSize = badgeSize * 0.7;
+        
+        // INCREASED BADGE SIZE for JPG
+        const badgeSize = basePixelSize * 0.6; 
+        const fontSize = badgeSize * 0.6;
 
         // --- DRAW LINES (User Drawn) ---
         if (lines && lines.length > 0) {
@@ -289,8 +292,8 @@ export const renderMapToBlob = async (
                 ctx.drawImage(iconImg, x - iconW/2, y - iconH/2, iconW, iconH);
             }
 
-            const badgeX = x + basePixelSize/2.8; 
-            const badgeY = y - basePixelSize/2.8;
+            const badgeX = x + basePixelSize/2.4; 
+            const badgeY = y - basePixelSize/2.4;
 
             ctx.beginPath();
             ctx.arc(badgeX, badgeY, badgeSize / 2, 0, 2 * Math.PI);
