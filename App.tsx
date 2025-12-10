@@ -8,7 +8,7 @@ import { MapPoint, ProjectState, InteractionMode, PointType, SavedProject, MapLi
 import { PointIcon } from './components/PointIcons';
 import { Maximize, Check, Trash2 } from 'lucide-react';
 import { saveProject } from './db';
-import { renderMapToBlob } from './utils';
+import { renderMapToBlob, generatePDF } from './utils';
 
 const generateId = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -484,6 +484,12 @@ export default function App() {
       }
   };
 
+  // --- EXPORT PDF ---
+  const handleExportPDF = async () => {
+      if (!imageSrc) return;
+      await generatePDF(imageSrc, points, lines, markerScale, planName);
+  };
+
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-slate-100">
       
@@ -505,6 +511,7 @@ export default function App() {
         onSaveProject={handleSaveProject}
         onOpenProjectManager={() => setShowManagerModal(true)}
         onExportImage={handleExportImage}
+        onExportPDF={handleExportPDF}
         hasImage={!!imageSrc}
         markerScale={markerScale}
         onIncreaseMarkerSize={() => setMarkerScale(s => Math.min(s + 0.2, 3))}

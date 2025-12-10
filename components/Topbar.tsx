@@ -4,7 +4,7 @@ import { InteractionMode, PointType, LineColor } from '../types';
 import { 
   Hand, MousePointer2, PlusCircle, ZoomIn, ZoomOut, RotateCcw, 
   Menu, Save, FolderCog, ImageDown, RefreshCw, Circle, CircleDashed,
-  PenTool
+  PenTool, FileText
 } from 'lucide-react';
 import { PointIcon, getPointTypeLabel } from './PointIcons';
 
@@ -25,6 +25,7 @@ interface TopbarProps {
   onSaveProject: () => void;
   onOpenProjectManager: () => void;
   onExportImage: () => void;
+  onExportPDF: () => void;
   hasImage: boolean;
   markerScale: number;
   onIncreaseMarkerSize: () => void;
@@ -47,6 +48,7 @@ export const Topbar: React.FC<TopbarProps> = ({
   onSaveProject,
   onOpenProjectManager,
   onExportImage,
+  onExportPDF,
   hasImage,
   markerScale,
   onIncreaseMarkerSize,
@@ -88,11 +90,21 @@ export const Topbar: React.FC<TopbarProps> = ({
         <button 
              onClick={onExportImage}
              disabled={!hasImage}
-             className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 transition-colors text-sm disabled:opacity-50"
-             title="Scarica come immagine (JPG)"
+             className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 transition-colors text-sm disabled:opacity-50"
+             title="Scarica JPG"
         >
              <ImageDown className="w-4 h-4" />
-             <span className="hidden md:inline">Esporta Foto</span>
+             <span className="hidden md:inline">JPG</span>
+        </button>
+
+        <button 
+             onClick={onExportPDF}
+             disabled={!hasImage}
+             className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-700 hover:bg-blue-600 transition-colors text-sm disabled:opacity-50 shadow-md border border-blue-600"
+             title="Scarica PDF Alta Qualità"
+        >
+             <FileText className="w-4 h-4" />
+             <span className="hidden md:inline font-bold">PDF</span>
         </button>
 
       </div>
