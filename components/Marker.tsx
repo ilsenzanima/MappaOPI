@@ -1,12 +1,11 @@
 
 import React from 'react';
 import { MapPoint } from '../types';
-import { PointIcon } from './PointIcons';
 
 interface MarkerProps {
   point: MapPoint;
-  scale: number; // Map zoom scale (not used for sizing anymore, kept for prop compatibility or tooltip)
-  markerScale: number; // User preference scale for symbols
+  scale: number; 
+  markerScale: number; 
   isSelected: boolean;
   onMouseDown: (e: React.MouseEvent, pointId: string) => void;
   onDelete: (pointId: string) => void;
@@ -14,26 +13,20 @@ interface MarkerProps {
 
 export const Marker: React.FC<MarkerProps> = ({ 
   point, 
-  scale, 
   markerScale,
   isSelected, 
   onMouseDown,
 }) => {
-  // Since we are physically resizing the map container (width/height), 
-  // we do NOT need to divide by 'scale' to keep markers constant size.
-  // They are absolute positioned elements on a resizing canvas.
-  // Their pixel size defined here will be their screen size.
   
-  const baseSize = 40 * markerScale;
-  const markerSize = baseSize; 
+  // Base dimensions
+  const size = 32 * markerScale; // Diameter of the main circle
+  const fontSize = 14 * markerScale;
   
-  // INCREASED BADGE SIZE
-  // Was baseSize / 2.2 -> Now baseSize / 1.7 (Bigger circle)
-  const badgeSize = (baseSize / 1.7);
-  // Was baseSize / 3.5 -> Now baseSize / 2.6 (Bigger font)
-  const badgeFontSize = (baseSize / 2.6);
-  
-  const iconSize = (baseSize / 1.6);
+  // Appendix dimensions (Typology)
+  const appendixFontSize = 11 * markerScale;
+  const appendixPadding = 3 * markerScale;
+
+  const showTypology = point.typology && point.typology.trim() !== '';
 
   return (
     <div
@@ -41,54 +34,69 @@ export const Marker: React.FC<MarkerProps> = ({
       style={{
         left: `${point.x}%`,
         top: `${point.y}%`,
-        transform: 'translate(-50%, -50%)', // Center the symbol exactly on the coordinates
+        transform: 'translate(-50%, -50%)', 
       }}
       onMouseDown={(e) => {
-        e.stopPropagation(); // Prevent map drag or click
+        e.stopPropagation(); 
         onMouseDown(e, point.id);
       }}
     >
-      {/* The visible marker container */}
-      <div 
-        className={`
-          relative flex items-center justify-center 
-          rounded-full shadow-lg border-2 
-          transition-colors duration-200
-          ${isSelected ? 'bg-blue-600 border-white text-white z-50 ring-2 ring-blue-300' : 'bg-white border-red-500 text-red-600'}
-        `}
-        style={{
-          width: `${markerSize}px`,
-          height: `${markerSize}px`,
-        }}
-      >
-        {/* The Icon */}
-        <div style={{ width: `${iconSize}px`, height: `${iconSize}px` }}>
-            <PointIcon type={point.type} className="w-full h-full" />
-        </div>
-
-        {/* The Number Badge (Top Right) */}
+      {/* Container for the marker composition */}
+      <div className="relative">
+        
+        {/* Main Circle (Sequential Number) */}
         <div 
           className={`
-            absolute -top-2 -right-2 flex items-center justify-center rounded-full shadow-sm font-bold border
-            ${isSelected ? 'bg-white text-blue-700 border-blue-700' : 'bg-red-600 text-white border-white'}
+            flex items-center justify-center 
+            rounded-full shadow-md border-2 font-bold
+            transition-colors duration-200
+            ${isSelected 
+              ? 'bg-blue-600 border-white text-white ring-2 ring-blue-300' 
+              : 'bg-red-600 border-white text-white'}
           `}
           style={{
-            width: `${badgeSize}px`,
-            height: `${badgeSize}px`,
-            fontSize: `${badgeFontSize}px`,
-            lineHeight: 1
+            width: `${size}px`,
+            height: `${size}px`,
+            fontSize: `${fontSize}px`,
+            lineHeight: 1,
+            zIndex: 10
           }}
         >
           {point.number}
         </div>
+
+        {/* Typology Appendix (Square Label) - Top Right */}
+        {showTypology && (
+          <div 
+            className={`
+              absolute flex items-center justify-center font-bold shadow-sm border
+              whitespace-nowrap z-20 rounded-[4px]
+              ${isSelected 
+                  ? 'bg-white text-blue-600 border-blue-600' 
+                  : 'bg-white text-red-600 border-red-600'}
+            `}
+            style={{
+              top: `-${size * 0.3}px`,    // Offset upwards
+              left: `${size * 0.7}px`,    // Offset right
+              fontSize: `${appendixFontSize}px`,
+              padding: `${appendixPadding}px`,
+              minWidth: `${size * 0.6}px`, // Minimum width relative to marker
+              height: `${size * 0.6}px`,   // Fixed height relative to marker
+              lineHeight: 1
+            }}
+          >
+            {point.typology}
+          </div>
+        )}
+
       </div>
 
-      {/* Hover tooltip for coordinates/desc */}
+      {/* Hover tooltip for description */}
       <div 
-        className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 bg-black/80 text-white px-2 py-1 rounded pointer-events-none whitespace-nowrap backdrop-blur-sm transition-opacity"
+        className="absolute bottom-full mb-3 opacity-0 group-hover:opacity-100 bg-black/80 text-white px-2 py-1 rounded pointer-events-none whitespace-nowrap backdrop-blur-sm transition-opacity z-50"
         style={{ fontSize: '12px' }}
       >
-        <span className="font-bold">#{point.number}</span> {point.description ? `- ${point.description}` : ''}
+        {point.description || `Punto ${point.number}`}
       </div>
     </div>
   );

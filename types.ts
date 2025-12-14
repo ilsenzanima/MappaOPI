@@ -1,5 +1,5 @@
 
-export type InteractionMode = 'pan' | 'add' | 'move' | 'line';
+export type InteractionMode = 'pan' | 'add' | 'move' | 'line' | 'reposition';
 
 export type PointType = 'generic' | 'floor-single' | 'wall-single' | 'floor-multi' | 'wall-multi';
 
@@ -7,12 +7,13 @@ export type LineColor = '#dc2626' | '#2563eb' | '#06b6d4' | '#16a34a' | '#f97316
 
 export interface MapPoint {
   id: string;
-  number: number; // The visual number (1, 2, 3...)
-  x: number; // Percentage relative to image width (0-100) - THIS IS THE BADGE POSITION
-  y: number; // Percentage relative to image height (0-100)
-  targetX?: number; // Percentage relative to image width (0-100) - THIS IS THE OBJECT POSITION (Arrow tip)
+  number: number; // The internal sequential index (used for sorting/list)
+  typology: string; // The text displayed INSIDE the marker (e.g. "1", "1,2", "A")
+  x: number; // Percentage relative to image width
+  y: number; // Percentage relative to image height
+  targetX?: number; // Arrow tip position
   targetY?: number;
-  type: PointType;
+  type?: string; // Kept for backward compatibility, but not used in UI
   description: string;
   createdAt: number;
 }
@@ -31,8 +32,8 @@ export interface ProjectState {
   planName: string;
   floor: string;
   imageName: string;
-  rotation: number; // Rotation in degrees
-  markerScale: number; // Scale factor for markers (0.5 to 3.0)
+  rotation: number; 
+  markerScale: number; 
   points: MapPoint[];
   lines: MapLine[];
 }

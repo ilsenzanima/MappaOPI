@@ -1,12 +1,11 @@
 
 import React from 'react';
-import { InteractionMode, PointType, LineColor } from '../types';
+import { InteractionMode, LineColor } from '../types';
 import { 
   Hand, MousePointer2, PlusCircle, ZoomIn, ZoomOut, RotateCcw, 
-  Menu, Save, FolderCog, ImageDown, RefreshCw, Circle, CircleDashed,
-  PenTool, FileText
+  Menu, Save, FolderCog, ImageDown, Circle, CircleDashed,
+  PenTool, FileText, RefreshCw
 } from 'lucide-react';
-import { PointIcon, getPointTypeLabel } from './PointIcons';
 
 interface TopbarProps {
   mode: InteractionMode;
@@ -18,8 +17,6 @@ interface TopbarProps {
   rotation: number;
   setRotation: (deg: number) => void;
   onToggleSidebar: () => void;
-  activePointType: PointType;
-  setActivePointType: (t: PointType) => void;
   activeLineColor: LineColor;
   setActiveLineColor: (c: LineColor) => void;
   onSaveProject: () => void;
@@ -41,8 +38,6 @@ export const Topbar: React.FC<TopbarProps> = ({
   rotation,
   setRotation,
   onToggleSidebar,
-  activePointType,
-  setActivePointType,
   activeLineColor,
   setActiveLineColor,
   onSaveProject,
@@ -54,7 +49,6 @@ export const Topbar: React.FC<TopbarProps> = ({
   onIncreaseMarkerSize,
   onDecreaseMarkerSize
 }) => {
-  const availableTypes: PointType[] = ['generic', 'floor-single', 'wall-single', 'floor-multi', 'wall-multi'];
   
   const colors: { val: LineColor, label: string }[] = [
       { val: '#dc2626', label: 'Rosso' },
@@ -142,22 +136,6 @@ export const Topbar: React.FC<TopbarProps> = ({
             </button>
             
             <div className="w-px h-5 bg-slate-600 mx-1"></div>
-
-            {/* Type Selector (Add Mode) */}
-            {mode === 'add' && (
-                <div className="flex items-center gap-1 px-1 border-r border-slate-600 mr-1 pr-2 animate-in fade-in slide-in-from-left-2">
-                    {availableTypes.map(type => (
-                        <button
-                            key={type}
-                            onClick={() => setActivePointType(type)}
-                            title={getPointTypeLabel(type)}
-                            className={`p-1 rounded ${activePointType === type ? 'bg-red-600 text-white' : 'text-slate-400 hover:text-white hover:bg-slate-700'}`}
-                        >
-                            <div className="w-4 h-4"><PointIcon type={type} /></div>
-                        </button>
-                    ))}
-                </div>
-            )}
 
              {/* Color Selector (Line Mode) */}
              {mode === 'line' && (

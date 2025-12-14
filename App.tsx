@@ -4,9 +4,8 @@ import { Marker } from './components/Marker';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { ProjectManager } from './components/ProjectManager';
-import { MapPoint, ProjectState, InteractionMode, PointType, SavedProject, MapLine, LineColor } from './types';
-import { PointIcon } from './components/PointIcons';
-import { Maximize, Check, Trash2 } from 'lucide-react';
+import { MapPoint, ProjectState, InteractionMode, SavedProject, MapLine, LineColor } from './types';
+import { Maximize, Check, Trash2, X, ExternalLink } from 'lucide-react';
 import { saveProject } from './db';
 import { renderMapToBlob, generatePDF } from './utils';
 
@@ -23,7 +22,6 @@ export default function App() {
   const [lines, setLines] = useState<MapLine[]>([]);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [imageName, setImageName] = useState<string | null>(null);
-  // NEW: Track natural image dimensions to calculate correct scaled width/height
   const [imgSize, setImgSize] = useState({ w: 0, h: 0 });
   
   const [planName, setPlanName] = useState<string>('');
@@ -34,7 +32,6 @@ export default function App() {
 
   // State: UI & Modes
   const [mode, setMode] = useState<InteractionMode>('pan');
-  const [activePointType, setActivePointType] = useState<PointType>('generic');
   const [activeLineColor, setActiveLineColor] = useState<LineColor>('#dc2626');
   
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -47,6 +44,10 @@ export default function App() {
   const [showManagerModal, setShowManagerModal] = useState(false); 
   const [tempImageFile, setTempImageFile] = useState<File | null>(null);
   const [pendingImageName, setPendingImageName] = useState<string | null>(null);
+
+  // PDF Preview State
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
 
   // Dragging state (Markers)
   const [draggingPointId, setDraggingPointId] = useState<string | null>(null);
@@ -81,7 +82,6 @@ export default function App() {
       setCurrentProjectId(undefined);
   };
 
-  // Helper to get image dimensions
   const getImageDimensions = (src: string): Promise<{ w: number, h: number }> => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -153,7 +153,6 @@ export default function App() {
       setMarkerScale(p.markerScale || 1);
       setCurrentProjectId(p.id);
       
-      // Load image and get dimensions
       setImageSrc(p.imageData);
       const dims = await getImageDimensions(p.imageData);
       setImgSize(dims);
@@ -218,7 +217,8 @@ export default function App() {
   // --- Handlers: Map Interaction (Creation & Dragging) ---
 
   const handleMapMouseDown = (e: React.MouseEvent) => {
-      if (mode === 'add' || mode === 'line') {
+      // Reposition now behaves like 'add' regarding mouse interactions
+      if (mode === 'add' || mode === 'line' || mode === 'reposition') {
          if (!imageSrc || !containerRef.current) return;
          const coords = getRelativeCoordinates(e.clientX, e.clientY);
          if (coords.x < 0 || coords.x > 100 || coords.y < 0 || coords.y > 100) return;
@@ -227,7 +227,6 @@ export default function App() {
          setCurrentMousePos(coords);
       }
       
-      // Deselect line if clicking on empty space
       if (mode !== 'pan') {
           setSelectedLineId(null);
       }
@@ -235,21 +234,59 @@ export default function App() {
 
   const handleMapMouseUp = (e: React.MouseEvent) => {
       if (!creationStart) return;
-
       const endCoords = getRelativeCoordinates(e.clientX, e.clientY);
-      
-      if (mode === 'add') {
-          // ADD POINT LOGIC
+
+      // Handle Repositioning
+      if (mode === 'reposition' && selectedPointId) {
           const dx = endCoords.x - creationStart.x;
           const dy = endCoords.y - creationStart.y;
           const dist = Math.sqrt(dx*dx + dy*dy);
 
+          setPoints(prev => prev.map(p => {
+              if (p.id === selectedPointId) {
+                  if (dist > 1.0) {
+                      // Dragged: Anchor at start, badge at end
+                      return {
+                          ...p,
+                          x: endCoords.x,
+                          y: endCoords.y,
+                          targetX: creationStart.x,
+                          targetY: creationStart.y
+                      };
+                  } else {
+                      // Clicked: Badge at click location, Anchor UNDERNEATH badge (so it's hidden but exists)
+                      return {
+                          ...p,
+                          x: endCoords.x,
+                          y: endCoords.y,
+                          targetX: endCoords.x, 
+                          targetY: endCoords.y
+                      };
+                  }
+              }
+              return p;
+          }));
+          
+          setMode('pan'); // Exit reposition mode
+          setCreationStart(null);
+          setCurrentMousePos(null);
+          return;
+      }
+
+      if (mode === 'add') {
+          const dx = endCoords.x - creationStart.x;
+          const dy = endCoords.y - creationStart.y;
+          const dist = Math.sqrt(dx*dx + dy*dy);
+
+          // Auto-fill typology with the next sequential number
+          const nextNum = points.length + 1;
+
           const newPoint: MapPoint = {
               id: generateId(),
-              number: points.length + 1,
+              number: nextNum,
+              typology: nextNum.toString(), // Default typology is same as ID
               x: endCoords.x, 
               y: endCoords.y,
-              type: activePointType,
               description: '',
               createdAt: Date.now(),
           };
@@ -265,10 +302,8 @@ export default function App() {
           setPoints(prev => [...prev, newPoint]);
           setSelectedPointId(newPoint.id);
       } else if (mode === 'line') {
-          // ADD LINE LOGIC
           const dx = endCoords.x - creationStart.x;
           const dy = endCoords.y - creationStart.y;
-          // Avoid zero-length lines
           if (Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) {
               const newLine: MapLine = {
                   id: generateId(),
@@ -295,7 +330,7 @@ export default function App() {
       setSelectedPointId(id);
       if (mode === 'move') {
           setDraggingPointId(id);
-          setDragType('badge');
+          setDragType('badge'); // The whole pill is draggable
       }
   };
 
@@ -325,22 +360,25 @@ export default function App() {
       setPoints(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
   };
 
+  const handleRepositionPoint = () => {
+      if (selectedPointId) {
+          setMode('reposition');
+      }
+  };
+
   const handleGlobalMouseMove = useCallback((e: MouseEvent) => {
-    // Handling Marker Move
     if (draggingPointId && containerRef.current) {
         const { x, y } = getRelativeCoordinates(e.clientX, e.clientY);
         setPoints(prev => prev.map(p => {
              if (p.id !== draggingPointId) return p;
              
              if (dragType === 'target') {
-                 // Move the arrow tip
                  return {
                      ...p,
                      targetX: Math.max(0, Math.min(100, x)),
                      targetY: Math.max(0, Math.min(100, y))
                  };
              } else {
-                 // Move the badge
                  return { 
                      ...p, 
                      x: Math.max(0, Math.min(100, x)), 
@@ -350,8 +388,8 @@ export default function App() {
         }));
     }
 
-    // Handling Creation Drag Visuals (Point or Line)
-    if ((mode === 'add' || mode === 'line') && creationStart && containerRef.current) {
+    // Enable visual feedback for add, line AND reposition modes
+    if ((mode === 'add' || mode === 'line' || mode === 'reposition') && creationStart && containerRef.current) {
         const coords = getRelativeCoordinates(e.clientX, e.clientY);
         setCurrentMousePos(coords);
     }
@@ -373,7 +411,6 @@ export default function App() {
     };
   }, [draggingPointId, dragType, handleGlobalMouseMove, handleGlobalMouseUp]);
 
-  // --- Panning ---
   const handleContainerMouseDown = (e: React.MouseEvent) => {
       if (mode !== 'pan') return;
       if (!containerWrapperRef.current) return;
@@ -402,7 +439,6 @@ export default function App() {
     if (selectedPointId === id) setSelectedPointId(null);
   };
 
-  // --- Export JSON/Import JSON ---
   const handleExportJSON = () => {
     const data: ProjectState = {
       version: 1,
@@ -431,45 +467,137 @@ export default function App() {
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
-        const json = JSON.parse(event.target?.result as string) as ProjectState;
-        if (json.points && Array.isArray(json.points)) {
+        const json = JSON.parse(event.target?.result as string);
+
+        // CASE 0: n8n / Custom Report Format (Array with 'dati' inside)
+        // Expected format: [{ fileName: '...', dati: [ { "N Foto": 1... } ] }]
+        if (Array.isArray(json) && json.length > 0 && json[0].dati && Array.isArray(json[0].dati)) {
             if (points.length > 0) {
-                if (!window.confirm("Sovrascrivere i dati attuali?")) {
+                 if (!window.confirm(`Hai importato un report di ${json[0].dati.length} punti. Vuoi sovrascrivere i punti attuali?`)) {
+                    e.target.value = '';
+                    return;
+                 }
+            }
+
+            const rawData = json[0].dati;
+            
+            // 1. Find max sequential number ("N Foto")
+            let maxNum = 0;
+            rawData.forEach((item: any) => {
+                const num = parseInt(item['N Foto']);
+                if (!isNaN(num) && num > maxNum) maxNum = num;
+            });
+
+            const newPoints: MapPoint[] = [];
+            
+            // 2. Loop from 1 to maxNum to ensure sequence and fill gaps
+            for (let i = 1; i <= maxNum; i++) {
+                const item = rawData.find((d: any) => parseInt(d['N Foto']) === i);
+                
+                // Position all points at top-left (2%, 2%) effectively 0,0 visually but accessible
+                const x = 2; 
+                const y = 2;
+
+                if (item) {
+                    newPoints.push({
+                        id: generateId(),
+                        number: i,
+                        typology: item['N Tipologico'] || '',
+                        description: item['Descrizione Completa'] || '',
+                        x: x,
+                        y: y,
+                        createdAt: Date.now()
+                    });
+                } else {
+                    // Create empty placeholder for missing number
+                    newPoints.push({
+                        id: generateId(),
+                        number: i,
+                        typology: '',
+                        description: '',
+                        x: x,
+                        y: y,
+                        createdAt: Date.now()
+                    });
+                }
+            }
+            
+            setPoints(newPoints);
+            // Optionally set Plan Name / Floor from JSON if available
+            if (json[0].piano) setFloor(json[0].piano);
+            
+            alert(`Importati ${newPoints.length} punti (incluso riempimento sequenziale). Punti posizionati a (0,0).`);
+            e.target.value = '';
+            return;
+        }
+
+        // CASE 1: Simple list of points (Legacy)
+        if (Array.isArray(json)) {
+            if (points.length > 0) {
+                if (!window.confirm(`Hai importato una lista di ${json.length} punti. Vuoi sovrascrivere i punti attuali?`)) {
                     e.target.value = '';
                     return;
                 }
             }
-            const importedPoints = json.points.map(p => ({ ...p, type: p.type || 'generic' }));
+            
+            const importedPoints: MapPoint[] = json.map((item: any, index: number) => ({
+                id: generateId(),
+                number: item.number || (index + 1),
+                typology: (item.number || (index + 1)).toString(), // Default typology
+                description: item.description || '',
+                x: 50,
+                y: 50,
+                createdAt: Date.now()
+            }));
+
             setPoints(importedPoints);
-            setLines(json.lines || []);
-            setPlanName(json.planName || 'Importato');
-            setFloor(json.floor || '');
-            setRotation(json.rotation || 0);
-            setMarkerScale(json.markerScale || 1);
+            alert(`Importati ${importedPoints.length} punti. Sono stati posizionati al centro.`);
+            e.target.value = '';
+            return;
+        }
+
+        // CASE 2: Full Project State
+        const projectState = json as ProjectState;
+        if (projectState.points && Array.isArray(projectState.points)) {
+            if (points.length > 0) {
+                if (!window.confirm("Sovrascrivere i dati attuali con il backup completo?")) {
+                    e.target.value = '';
+                    return;
+                }
+            }
+            // Ensure typology exists for old backups
+            const importedPoints = projectState.points.map(p => ({ 
+                ...p, 
+                typology: p.typology || p.number.toString() 
+            }));
+            
+            setPoints(importedPoints);
+            setLines(projectState.lines || []);
+            setPlanName(projectState.planName || 'Importato');
+            setFloor(projectState.floor || '');
+            setRotation(projectState.rotation || 0);
+            setMarkerScale(projectState.markerScale || 1);
             setCurrentProjectId(undefined); 
-            if (json.imageName && json.imageName !== imageName) {
-                setPendingImageName(json.imageName);
+            if (projectState.imageName && projectState.imageName !== imageName) {
+                setPendingImageName(projectState.imageName);
                 setImageSrc(null); 
                 setImageName(null); 
                 setImgSize({ w: 0, h: 0 });
             } else if (!imageName) {
-                setPendingImageName(json.imageName || 'unknown');
+                setPendingImageName(projectState.imageName || 'unknown');
             }
         }
       } catch (err) {
-        alert("Errore file JSON.");
+        alert("Errore file JSON. Assicurati che il formato sia corretto.");
       }
     };
     reader.readAsText(file);
     e.target.value = '';
   };
 
-  // --- EXPORT IMAGE ---
   const handleExportImage = async () => {
       if (!imageSrc) return;
-      
       const blob = await renderMapToBlob(imageSrc, points, lines, markerScale);
-      
       if (blob) {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a');
@@ -484,16 +612,23 @@ export default function App() {
       }
   };
 
-  // --- EXPORT PDF ---
   const handleExportPDF = async () => {
       if (!imageSrc) return;
-      await generatePDF(imageSrc, points, lines, markerScale, planName);
+      await generatePDF(imageSrc, points, lines, markerScale, planName, false);
+  };
+  
+  const handlePreviewPDF = async () => {
+    if (!imageSrc) return;
+    const blobUrl = await generatePDF(imageSrc, points, lines, markerScale, planName, true);
+    if (typeof blobUrl === 'string') {
+        setPdfPreviewUrl(blobUrl);
+        setShowPdfPreview(true);
+    }
   };
 
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-slate-100">
       
-      {/* Topbar */}
       <Topbar 
         mode={mode}
         setMode={setMode}
@@ -504,8 +639,6 @@ export default function App() {
         rotation={rotation}
         setRotation={setRotation}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        activePointType={activePointType}
-        setActivePointType={setActivePointType}
         activeLineColor={activeLineColor}
         setActiveLineColor={setActiveLineColor}
         onSaveProject={handleSaveProject}
@@ -520,10 +653,48 @@ export default function App() {
 
       <div className="flex flex-1 relative overflow-hidden">
           
-          {/* Main Map Area */}
           <div className="flex-1 relative bg-slate-200 overflow-hidden">
              
-            {/* Modal: Project Details */}
+            {/* PDF Preview Modal */}
+            {showPdfPreview && pdfPreviewUrl && (
+                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                     <div className="bg-white w-full h-full max-w-6xl rounded-lg shadow-2xl flex flex-col overflow-hidden">
+                         <div className="flex justify-between items-center p-3 border-b bg-slate-50">
+                             <div className="flex items-center gap-4">
+                                <h3 className="font-bold text-slate-700">Anteprima Report PDF</h3>
+                                <a 
+                                    href={pdfPreviewUrl} 
+                                    target="_blank" 
+                                    rel="noreferrer"
+                                    className="flex items-center gap-2 text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded hover:bg-blue-200 transition-colors font-medium"
+                                >
+                                    <ExternalLink className="w-3 h-3" />
+                                    Apri in nuova scheda
+                                </a>
+                             </div>
+                             <button 
+                                 onClick={() => { setShowPdfPreview(false); URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }}
+                                 className="p-1 hover:bg-slate-200 rounded-full"
+                             >
+                                 <X className="w-6 h-6 text-slate-500" />
+                             </button>
+                         </div>
+                         <div className="flex-1 bg-slate-200 relative">
+                             <object data={pdfPreviewUrl} type="application/pdf" className="w-full h-full">
+                                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-4 text-center">
+                                    <p className="mb-4 text-lg font-medium">Impossibile visualizzare l'anteprima qui.</p>
+                                    <p className="mb-6 text-sm opacity-80 max-w-md">Il tuo browser (es. Opera, Safari) potrebbe bloccare i PDF integrati. Usa il pulsante qui sotto per aprirlo.</p>
+                                    <a href={pdfPreviewUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg shadow-lg hover:bg-blue-700 font-bold transition-transform hover:scale-105">
+                                        <ExternalLink className="w-5 h-5" />
+                                        Apri PDF
+                                    </a>
+                                </div>
+                             </object>
+                         </div>
+                     </div>
+                 </div>
+            )}
+
             {showProjectModal && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
@@ -552,14 +723,12 @@ export default function App() {
                 </div>
             )}
 
-            {/* Modal: Project Manager */}
             <ProjectManager 
                 isOpen={showManagerModal} 
                 onClose={() => setShowManagerModal(false)}
                 onLoadProject={handleLoadSavedProject}
             />
 
-            {/* Modal: Missing Image Import */}
             {pendingImageName && !showProjectModal && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md text-center">
@@ -574,7 +743,6 @@ export default function App() {
                 </div>
             )}
 
-            {/* Empty State */}
             {!imageSrc && !pendingImageName && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 z-0 p-8 text-center m-8 rounded-xl border-4 border-dashed border-slate-300">
                     <Maximize className="w-20 h-20 mb-4 text-slate-300" />
@@ -587,13 +755,12 @@ export default function App() {
                 </div>
             )}
 
-            {/* Map Canvas */}
             {imageSrc && (
                 <div 
                     ref={containerWrapperRef}
                     className={`absolute inset-0 overflow-auto bg-slate-200 grid place-items-center
                         ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''}
-                        ${(mode === 'add' || mode === 'line') ? 'cursor-crosshair' : ''}
+                        ${(mode === 'add' || mode === 'line' || mode === 'reposition') ? 'cursor-crosshair' : ''}
                         ${mode === 'move' ? 'cursor-default' : ''}
                     `}
                     onMouseDown={handleContainerMouseDown}
@@ -615,18 +782,14 @@ export default function App() {
                         >
                             <img src={imageSrc} alt="Planimetria" className="w-full h-full object-contain pointer-events-none block" draggable={false} />
                             
-                            {/* SVG Layer: Leader Lines & Drawn Lines */}
                             <svg className="absolute inset-0 w-full h-full z-0 pointer-events-none">
-                                {/* Drawn Lines */}
                                 {lines.map(line => (
                                     <g key={line.id} className="pointer-events-auto cursor-pointer" onClick={(e) => handleLineClick(e, line.id)}>
-                                        {/* Invisible wider path for easier clicking */}
                                         <line 
                                             x1={`${line.startX}%`} y1={`${line.startY}%`} 
                                             x2={`${line.endX}%`} y2={`${line.endY}%`} 
                                             stroke="transparent" strokeWidth={15 * markerScale} 
                                         />
-                                        {/* Visible Line */}
                                         <line 
                                             x1={`${line.startX}%`} y1={`${line.startY}%`} 
                                             x2={`${line.endX}%`} y2={`${line.endY}%`} 
@@ -635,7 +798,6 @@ export default function App() {
                                             strokeLinecap="round"
                                             className={selectedLineId === line.id ? 'filter drop-shadow-[0_0_2px_rgba(0,0,0,0.5)]' : ''}
                                         />
-                                        {/* Selection Highlight */}
                                         {selectedLineId === line.id && (
                                             <line 
                                                 x1={`${line.startX}%`} y1={`${line.startY}%`} 
@@ -646,7 +808,6 @@ export default function App() {
                                     </g>
                                 ))}
 
-                                {/* Drawing Preview Line */}
                                 {mode === 'line' && creationStart && currentMousePos && (
                                     <line 
                                         x1={`${creationStart.x}%`} y1={`${creationStart.y}%`} 
@@ -655,7 +816,6 @@ export default function App() {
                                     />
                                 )}
 
-                                {/* Marker Leader Lines */}
                                 {points.map(p => {
                                     if (p.targetX !== undefined && p.targetY !== undefined && 
                                         (Math.abs(p.targetX - p.x) > 0.1 || Math.abs(p.targetY - p.y) > 0.1)) {
@@ -677,8 +837,8 @@ export default function App() {
                                     return null;
                                 })}
                                 
-                                {/* Point Creation Preview */}
-                                {mode === 'add' && creationStart && currentMousePos && (
+                                {/* Visual feedback for Add AND Reposition modes */}
+                                {(mode === 'add' || mode === 'reposition') && creationStart && currentMousePos && (
                                      <g>
                                         <line 
                                             x1={`${creationStart.x}%`} y1={`${creationStart.y}%`} 
@@ -690,7 +850,6 @@ export default function App() {
                                 )}
                             </svg>
                             
-                            {/* Delete Button for Selected Line (HTML Overlay) */}
                             {selectedLineId && (() => {
                                 const line = lines.find(l => l.id === selectedLineId);
                                 if (!line) return null;
@@ -725,7 +884,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Right Sidebar */}
           <Sidebar 
             points={points}
             isOpen={isSidebarOpen}
@@ -733,12 +891,15 @@ export default function App() {
             onDeletePoint={handleDeletePoint}
             onSelectPoint={setSelectedPointId}
             onUpdatePoint={updatePoint}
+            onRepositionPoint={handleRepositionPoint}
             selectedPointId={selectedPointId}
             onExportJSON={handleExportJSON}
             onImportJSON={handleImportJSON}
+            onPreviewPDF={handlePreviewPDF}
             imageName={imageName}
             planName={planName}
             floor={floor}
+            isRepositioning={mode === 'reposition'}
           />
       </div>
     </div>
