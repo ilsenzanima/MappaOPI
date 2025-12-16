@@ -80,6 +80,18 @@ export default function App() {
       setRotation(0);
       setMarkerScale(1);
       setCurrentProjectId(undefined);
+      setPendingImageName(null);
+      setTempImageFile(null);
+  };
+
+  const handleNewProject = () => {
+      if (imageSrc || points.length > 0) {
+          if (confirm('Sei sicuro di voler creare un nuovo progetto? Eventuali modifiche non salvate andranno perse.')) {
+              resetProject();
+          }
+      } else {
+          resetProject();
+      }
   };
 
   const getImageDimensions = (src: string): Promise<{ w: number, h: number }> => {
@@ -765,6 +777,7 @@ export default function App() {
         onIncreaseMarkerSize={() => setMarkerScale(s => Math.min(s + 0.2, 3))}
         onDecreaseMarkerSize={() => setMarkerScale(s => Math.max(s - 0.2, 0.5))}
         onBulkImageUpload={handleBulkImageUpload}
+        onNewProject={handleNewProject}
       />
 
       <div className="flex flex-1 relative overflow-hidden">

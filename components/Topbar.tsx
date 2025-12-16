@@ -4,7 +4,7 @@ import { InteractionMode, LineColor } from '../types';
 import { 
   Hand, MousePointer2, PlusCircle, ZoomIn, ZoomOut, RotateCcw, 
   Menu, Save, FolderCog, ImageDown, Circle, CircleDashed,
-  PenTool, FileText, RefreshCw, ImagePlus
+  PenTool, FileText, RefreshCw, ImagePlus, FilePlus
 } from 'lucide-react';
 
 interface TopbarProps {
@@ -28,6 +28,7 @@ interface TopbarProps {
   onIncreaseMarkerSize: () => void;
   onDecreaseMarkerSize: () => void;
   onBulkImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onNewProject: () => void;
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
@@ -49,7 +50,8 @@ export const Topbar: React.FC<TopbarProps> = ({
   markerScale,
   onIncreaseMarkerSize,
   onDecreaseMarkerSize,
-  onBulkImageUpload
+  onBulkImageUpload,
+  onNewProject
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -68,6 +70,15 @@ export const Topbar: React.FC<TopbarProps> = ({
       <div className="flex items-center gap-2">
         <div className="font-bold text-lg mr-4 text-blue-400 hidden sm:block">SiteMapper</div>
         
+        <button 
+            onClick={onNewProject} 
+            className="flex items-center gap-2 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 transition-colors text-sm font-bold shadow-sm"
+            title="Nuovo Progetto"
+        >
+          <FilePlus className="w-4 h-4" />
+          <span className="hidden md:inline">Nuovo</span>
+        </button>
+
         <button onClick={onOpenProjectManager} className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 transition-colors text-sm">
           <FolderCog className="w-4 h-4" />
           <span className="hidden md:inline">Progetti</span>
