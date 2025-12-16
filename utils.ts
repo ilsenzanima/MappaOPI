@@ -16,7 +16,7 @@ const loadImage = (src: string): Promise<HTMLImageElement> => {
 };
 
 /**
- * Generates a high-quality PDF with vector overlays and a data report table.
+ * Generates a high-quality PDF with vector overlays and a 4-quadrant data report.
  * If shouldReturnBlob is true, returns a Blob URL instead of saving the file.
  */
 export const generatePDF = async (
@@ -128,81 +128,129 @@ export const generatePDF = async (
             }
         }
 
-        // --- PAGE 2+: REPORT TABLE ---
-        doc.addPage("a4", "p"); // Switch to standard A4 Portrait for the report
-        const pageWidth = doc.internal.pageSize.getWidth();
-        const pageHeight = doc.internal.pageSize.getHeight();
-        const margin = 20;
-        let cursorY = margin;
-
-        // Title
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(16);
-        doc.setTextColor(0, 0, 0);
-        doc.text(`Report: ${planName}`, margin, cursorY);
-        cursorY += 20;
-
-        // Table Constants
-        const col1W = 30; // N.
-        const col2W = 80; // Typology
-        const col3W = pageWidth - (margin * 2) - col1W - col2W; // Description
-        const rowPadding = 6;
-        const lineHeight = 12;
-
-        // Header Function
-        const drawHeader = (y: number) => {
-            doc.setFillColor(220, 220, 220);
-            doc.rect(margin, y, pageWidth - (margin * 2), 15, 'F');
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "bold");
-            doc.text("N.", margin + 5, y + 11);
-            doc.text("Tipologico", margin + col1W + 5, y + 11);
-            doc.text("Descrizione", margin + col1W + col2W + 5, y + 11);
-            return y + 15;
-        };
-
-        cursorY = drawHeader(cursorY);
-
+        // --- PAGE 2+: QUADRANT REPORT (4 per page) ---
         // Sort points by number
         const sortedPoints = [...points].sort((a, b) => a.number - b.number);
+        let cursorIndex = 0;
 
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(10);
+        while (cursorIndex < sortedPoints.length) {
+            doc.addPage("a4", "p");
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            
+            // Quadrant Dimensions
+            const qW = pageWidth / 2;
+            const qH = pageHeight / 2;
 
-        for (const point of sortedPoints) {
-            // Calculate row height based on description text wrapping
-            // Subtract slightly more padding from col3W to ensure text doesn't touch lines
-            const descLines = doc.splitTextToSize(point.description || '-', col3W - 12);
-            const numLines = descLines.length;
-            const rowHeight = Math.max(22, (numLines * lineHeight) + (rowPadding * 2));
+            for (let i = 0; i < 4; i++) {
+                if (cursorIndex >= sortedPoints.length) break;
+                const point = sortedPoints[cursorIndex];
+                
+                // Coordinates (0: TL, 1: TR, 2: BL, 3: BR)
+                const col = i % 2;
+                const row = Math.floor(i / 2);
+                const xBase = col * qW;
+                const yBase = row * qH;
 
-            // Check page break
-            if (cursorY + rowHeight > pageHeight - margin) {
-                doc.addPage("a4", "p");
-                cursorY = margin;
-                cursorY = drawHeader(cursorY);
+                // Draw Quadrant Border
+                doc.setDrawColor(200, 200, 200); // Light Gray
+                doc.setLineWidth(1);
+                doc.rect(xBase, yBase, qW, qH);
+
+                // --- 1. Header (Title) ---
+                const headerH = 25;
+                doc.setFillColor(240, 240, 240); // Very light gray bg
+                doc.rect(xBase, yBase, qW, headerH, 'F');
+                
+                // Border bottom of header
+                doc.line(xBase, yBase + headerH, xBase + qW, yBase + headerH);
+
+                doc.setFont("helvetica", "bold");
+                doc.setFontSize(12);
+                doc.setTextColor(0, 0, 0);
+                
+                const titleText = `Punto N. ${point.number} ${point.typology ? `(Tip. ${point.typology})` : ''}`;
+                doc.text(titleText, xBase + 10, yBase + 17);
+
+                // --- 2. Layout Calculation ---
+                const padding = 10;
+                const contentY = yBase + headerH + padding;
+                const contentW = qW - (padding * 2);
+                const contentH = qH - headerH - (padding * 2);
+
+                // Space allocation: 
+                // Description at bottom (approx 25% height or fixed lines)
+                // Images take remaining top space.
+                const descH = 60; // Space for description
+                const imageAreaH = contentH - descH - 10; // Gap
+
+                // --- 3. Images ---
+                if (point.images && point.images.length > 0) {
+                    // Show max 2 images side-by-side
+                    const imgsToShow = point.images.slice(0, 2);
+                    const gap = 5;
+                    // Available width per image
+                    const slotW = imgsToShow.length === 1 ? contentW : (contentW - gap) / 2;
+                    
+                    for (let k = 0; k < imgsToShow.length; k++) {
+                        const imgData = imgsToShow[k];
+                        try {
+                            // Preload to get aspect ratio
+                            const imgObj = await loadImage(imgData);
+                            const iW = imgObj.naturalWidth;
+                            const iH = imgObj.naturalHeight;
+
+                            // Calculate 'contain' fit
+                            const scale = Math.min(slotW / iW, imageAreaH / iH);
+                            const drawW = iW * scale;
+                            const drawH = iH * scale;
+
+                            // Center in slot
+                            const slotX = xBase + padding + (k * (slotW + gap));
+                            const slotY = contentY; // Top of content area
+                            
+                            const finalX = slotX + (slotW - drawW) / 2;
+                            const finalY = slotY + (imageAreaH - drawH) / 2;
+
+                            doc.addImage(imgData, 'JPEG', finalX, finalY, drawW, drawH, undefined, 'FAST');
+                            
+                            // Optional: subtle border around image
+                            doc.setDrawColor(220);
+                            doc.rect(finalX, finalY, drawW, drawH);
+                            
+                        } catch (err) {
+                            console.warn("Error adding image to PDF", err);
+                        }
+                    }
+                } else {
+                    // Placeholder text if no image
+                    doc.setFont("helvetica", "italic");
+                    doc.setFontSize(10);
+                    doc.setTextColor(150);
+                    doc.text("Nessuna foto allegata", xBase + (qW / 2), contentY + (imageAreaH / 2), { align: 'center' });
+                }
+
+                // --- 4. Description ---
+                const descY = contentY + imageAreaH + 10;
+                
+                // Separator line
+                doc.setDrawColor(240);
+                doc.line(xBase + padding, descY - 5, xBase + qW - padding, descY - 5);
+
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(10);
+                doc.setTextColor(50);
+                
+                const descText = point.description ? point.description : "-";
+                
+                // Wrap text
+                const splitDesc = doc.splitTextToSize(descText, contentW);
+                // We truncate if it exceeds available space, or just let it overflow (risk overlapping next page? no, we have clipped box concept)
+                // For simplicity, we just print. 
+                doc.text(splitDesc, xBase + padding, descY + 5);
+
+                cursorIndex++;
             }
-
-            // Draw Row Background (Alternating optional, keeping white for clean look)
-            doc.setDrawColor(200, 200, 200);
-            doc.rect(margin, cursorY, pageWidth - (margin * 2), rowHeight); // Border
-            
-            // Vertical Lines
-            doc.line(margin + col1W, cursorY, margin + col1W, cursorY + rowHeight);
-            doc.line(margin + col1W + col2W, cursorY, margin + col1W + col2W, cursorY + rowHeight);
-
-            // Draw Text
-            // Col 1: Number (Centered vertically)
-            doc.text(point.number.toString(), margin + 5, cursorY + (rowHeight / 2) + 3.5);
-            
-            // Col 2: Typology (Centered vertically)
-            doc.text(point.typology || '', margin + col1W + 5, cursorY + (rowHeight / 2) + 3.5);
-
-            // Col 3: Description (Wrapped, Top Aligned with padding)
-            // Using cursorY + 13 creates a nice top padding (approx 7px from top border)
-            doc.text(descLines, margin + col1W + col2W + 5, cursorY + 13);
-
-            cursorY += rowHeight;
         }
 
         // --- FINALIZE ---

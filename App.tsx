@@ -190,6 +190,70 @@ export default function App() {
     e.target.value = '';
   };
 
+  // --- Handlers: Bulk Image Upload ---
+  const handleBulkImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (!window.confirm(`Stai per caricare ${files.length} foto. Il sistema tenterà di assegnarle automaticamente ai punti basandosi sul nome del file (es. "..._1.jpg" -> Punto 1). Vuoi procedere?`)) {
+        e.target.value = '';
+        return;
+    }
+
+    const fileArray = Array.from(files);
+    let matchedCount = 0;
+    
+    // Create a copy of points map to update
+    const pointsMap = new Map(points.map(p => [p.number, p]));
+
+    // Regex to find point number: Look for "_NUMBER" followed by optional index and extension at end of string
+    // Matches: "P 0_1.jpg" -> 1, "P 0_1_2.jpg" -> 1, "Img_55.jpg" -> 55
+    const regex = /_(\d+)(?:_\d+)?\.[^.]+$/;
+
+    const promises = fileArray.map(file => {
+        return new Promise<void>((resolve) => {
+            const match = file.name.match(regex);
+            if (match && match[1]) {
+                const pointNum = parseInt(match[1], 10);
+                const point = pointsMap.get(pointNum);
+                
+                if (point) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        if (event.target?.result && typeof event.target.result === 'string') {
+                            const newImg = event.target.result;
+                            // Add to temp map
+                            const p = pointsMap.get(pointNum);
+                            if (p) {
+                                const existing = p.images || [];
+                                // Update the object in the map
+                                pointsMap.set(pointNum, {
+                                    ...p,
+                                    images: [...existing, newImg]
+                                });
+                                matchedCount++;
+                            }
+                        }
+                        resolve();
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    resolve(); // No point found with that number
+                }
+            } else {
+                resolve(); // No number in filename
+            }
+        });
+    });
+
+    await Promise.all(promises);
+
+    // Update state from the map
+    setPoints(Array.from(pointsMap.values()));
+    alert(`Caricamento completato! ${matchedCount} foto assegnate ai punti.`);
+    e.target.value = '';
+  };
+
   const confirmProjectDetails = () => {
     if (tempImageFile) {
         const reader = new FileReader();
@@ -472,61 +536,112 @@ export default function App() {
         // CASE 0: n8n / Custom Report Format (Array with 'dati' inside)
         // Expected format: [{ fileName: '...', dati: [ { "N Foto": 1... } ] }]
         if (Array.isArray(json) && json.length > 0 && json[0].dati && Array.isArray(json[0].dati)) {
+            
+            let shouldMerge = false;
             if (points.length > 0) {
-                 if (!window.confirm(`Hai importato un report di ${json[0].dati.length} punti. Vuoi sovrascrivere i punti attuali?`)) {
-                    e.target.value = '';
-                    return;
+                 // Enhanced confirmation logic for merging vs replacing
+                 const wantToMerge = window.confirm(
+                    `Rilevati punti esistenti.\n\nVUOI AGGIORNARE I DATI?\nPremendo OK: Aggiornerai solo descrizioni e tipologici dei punti corrispondenti (mantenendo foto e posizioni attuali).\nPremendo ANNULLA: Cancellerai tutto e importerai i nuovi punti da zero.`
+                 );
+                 
+                 if (wantToMerge) {
+                    shouldMerge = true;
+                 } else {
+                    if (!window.confirm("Sei sicuro di voler sovrascrivere tutto? Le foto e le posizioni attuali andranno perse.")) {
+                        e.target.value = '';
+                        return;
+                    }
+                    shouldMerge = false;
                  }
             }
 
             const rawData = json[0].dati;
             
-            // 1. Find max sequential number ("N Foto")
-            let maxNum = 0;
-            rawData.forEach((item: any) => {
-                const num = parseInt(item['N Foto']);
-                if (!isNaN(num) && num > maxNum) maxNum = num;
-            });
+            if (shouldMerge) {
+                 // MERGE LOGIC
+                 const updatedPoints = [...points];
+                 let updatesCount = 0;
+                 let newCount = 0;
 
-            const newPoints: MapPoint[] = [];
-            
-            // 2. Loop from 1 to maxNum to ensure sequence and fill gaps
-            for (let i = 1; i <= maxNum; i++) {
-                const item = rawData.find((d: any) => parseInt(d['N Foto']) === i);
+                 rawData.forEach((item: any) => {
+                     const num = parseInt(item['N Foto']);
+                     if (isNaN(num)) return;
+
+                     const existingIndex = updatedPoints.findIndex(p => p.number === num);
+
+                     if (existingIndex !== -1) {
+                         // Update existing (Only descriptions/typology)
+                         updatedPoints[existingIndex] = {
+                             ...updatedPoints[existingIndex],
+                             description: item['Descrizione Completa'] || updatedPoints[existingIndex].description,
+                             typology: item['N Tipologico'] || updatedPoints[existingIndex].typology
+                         };
+                         updatesCount++;
+                     } else {
+                         // Add new point that wasn't there before
+                         updatedPoints.push({
+                             id: generateId(),
+                             number: num,
+                             typology: item['N Tipologico'] || '',
+                             description: item['Descrizione Completa'] || '',
+                             x: 2,
+                             y: 2,
+                             createdAt: Date.now()
+                         });
+                         newCount++;
+                     }
+                 });
+                 
+                 setPoints(updatedPoints);
+                 if (json[0].piano) setFloor(json[0].piano);
+                 alert(`Aggiornamento completato!\n${updatesCount} punti aggiornati.\n${newCount} nuovi punti aggiunti.`);
+
+            } else {
+                // REPLACE LOGIC (Original logic)
+                // 1. Find max sequential number
+                let maxNum = 0;
+                rawData.forEach((item: any) => {
+                    const num = parseInt(item['N Foto']);
+                    if (!isNaN(num) && num > maxNum) maxNum = num;
+                });
+
+                const newPoints: MapPoint[] = [];
                 
-                // Position all points at top-left (2%, 2%) effectively 0,0 visually but accessible
-                const x = 2; 
-                const y = 2;
+                // 2. Loop from 1 to maxNum to ensure sequence
+                for (let i = 1; i <= maxNum; i++) {
+                    const item = rawData.find((d: any) => parseInt(d['N Foto']) === i);
+                    
+                    const x = 2; 
+                    const y = 2;
 
-                if (item) {
-                    newPoints.push({
-                        id: generateId(),
-                        number: i,
-                        typology: item['N Tipologico'] || '',
-                        description: item['Descrizione Completa'] || '',
-                        x: x,
-                        y: y,
-                        createdAt: Date.now()
-                    });
-                } else {
-                    // Create empty placeholder for missing number
-                    newPoints.push({
-                        id: generateId(),
-                        number: i,
-                        typology: '',
-                        description: '',
-                        x: x,
-                        y: y,
-                        createdAt: Date.now()
-                    });
+                    if (item) {
+                        newPoints.push({
+                            id: generateId(),
+                            number: i,
+                            typology: item['N Tipologico'] || '',
+                            description: item['Descrizione Completa'] || '',
+                            x: x,
+                            y: y,
+                            createdAt: Date.now()
+                        });
+                    } else {
+                        newPoints.push({
+                            id: generateId(),
+                            number: i,
+                            typology: '',
+                            description: '',
+                            x: x,
+                            y: y,
+                            createdAt: Date.now()
+                        });
+                    }
                 }
+                
+                setPoints(newPoints);
+                if (json[0].piano) setFloor(json[0].piano);
+                alert(`Importati ${newPoints.length} punti (incluso riempimento sequenziale). Punti posizionati a (0,0).`);
             }
-            
-            setPoints(newPoints);
-            // Optionally set Plan Name / Floor from JSON if available
-            if (json[0].piano) setFloor(json[0].piano);
-            
-            alert(`Importati ${newPoints.length} punti (incluso riempimento sequenziale). Punti posizionati a (0,0).`);
+
             e.target.value = '';
             return;
         }
@@ -649,6 +764,7 @@ export default function App() {
         markerScale={markerScale}
         onIncreaseMarkerSize={() => setMarkerScale(s => Math.min(s + 0.2, 3))}
         onDecreaseMarkerSize={() => setMarkerScale(s => Math.max(s - 0.2, 0.5))}
+        onBulkImageUpload={handleBulkImageUpload}
       />
 
       <div className="flex flex-1 relative overflow-hidden">

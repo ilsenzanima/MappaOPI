@@ -15,6 +15,7 @@ export interface MapPoint {
   targetY?: number;
   type?: string; // Kept for backward compatibility, but not used in UI
   description: string;
+  images?: string[]; // Array of base64 strings for attached photos
   createdAt: number;
 }
 

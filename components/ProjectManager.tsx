@@ -72,6 +72,37 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ isOpen, onClose,
             zip.file(`${project.planName}_mappa.jpg`, mapBlob);
         }
 
+        // Add Photos Folder
+        const photosFolder = zip.folder("foto_punti");
+        if (photosFolder) {
+            for (const point of project.points) {
+                if (point.images && point.images.length > 0) {
+                    for (let i = 0; i < point.images.length; i++) {
+                        const imgData = point.images[i];
+                        // Convert base64 data URL to blob
+                        const res = await fetch(imgData);
+                        const imgBlob = await res.blob();
+                        
+                        // Naming Logic: {Floor}_{PointNumber}[_Index].jpg
+                        // Example: P 0_1.jpg OR P -1_55.jpg
+                        // Default to 'P' if floor is empty.
+                        const floorPrefix = project.floor && project.floor.trim() !== '' ? project.floor : 'P';
+                        let fileName = '';
+
+                        if (point.images.length === 1) {
+                            // Clean format for single image: Floor_Number.jpg
+                            fileName = `${floorPrefix}_${point.number}.jpg`;
+                        } else {
+                            // Indexed format for multiple images: Floor_Number_Index.jpg
+                            fileName = `${floorPrefix}_${point.number}_${i + 1}.jpg`;
+                        }
+
+                        photosFolder.file(fileName, imgBlob);
+                    }
+                }
+            }
+        }
+
         // Generate Zip
         const content = await zip.generateAsync({ type: "blob" });
         
@@ -79,7 +110,7 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ isOpen, onClose,
         const url = URL.createObjectURL(content);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `${project.planName}_archive.zip`;
+        a.download = `${project.planName}_archivio.zip`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -139,7 +170,7 @@ export const ProjectManager: React.FC<ProjectManagerProps> = ({ isOpen, onClose,
                        <button 
                          onClick={(e) => handleArchive(p, e)}
                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded" 
-                         title="Scarica ZIP"
+                         title="Scarica ZIP (JSON + Foto + Report)"
                         >
                            <Archive className="w-4 h-4" />
                        </button>

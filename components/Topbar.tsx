@@ -1,10 +1,10 @@
 
-import React from 'react';
+import React, { useRef } from 'react';
 import { InteractionMode, LineColor } from '../types';
 import { 
   Hand, MousePointer2, PlusCircle, ZoomIn, ZoomOut, RotateCcw, 
   Menu, Save, FolderCog, ImageDown, Circle, CircleDashed,
-  PenTool, FileText, RefreshCw
+  PenTool, FileText, RefreshCw, ImagePlus
 } from 'lucide-react';
 
 interface TopbarProps {
@@ -27,6 +27,7 @@ interface TopbarProps {
   markerScale: number;
   onIncreaseMarkerSize: () => void;
   onDecreaseMarkerSize: () => void;
+  onBulkImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
 export const Topbar: React.FC<TopbarProps> = ({
@@ -47,8 +48,10 @@ export const Topbar: React.FC<TopbarProps> = ({
   hasImage,
   markerScale,
   onIncreaseMarkerSize,
-  onDecreaseMarkerSize
+  onDecreaseMarkerSize,
+  onBulkImageUpload
 }) => {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const colors: { val: LineColor, label: string }[] = [
       { val: '#dc2626', label: 'Rosso' },
@@ -99,6 +102,26 @@ export const Topbar: React.FC<TopbarProps> = ({
         >
              <FileText className="w-4 h-4" />
              <span className="hidden md:inline font-bold">PDF</span>
+        </button>
+        
+        <div className="w-px h-6 bg-slate-700 mx-2"></div>
+
+        <button 
+             onClick={() => fileInputRef.current?.click()}
+             disabled={!hasImage}
+             className="flex items-center gap-2 px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 transition-colors text-sm disabled:opacity-50 border border-slate-600"
+             title="Importa Foto da nomi file (es. P 0_1.jpg)"
+        >
+             <ImagePlus className="w-4 h-4 text-green-400" />
+             <span className="hidden md:inline">Importa Foto</span>
+             <input 
+                ref={fileInputRef}
+                type="file" 
+                multiple 
+                accept="image/*" 
+                className="hidden" 
+                onChange={onBulkImageUpload} 
+             />
         </button>
 
       </div>

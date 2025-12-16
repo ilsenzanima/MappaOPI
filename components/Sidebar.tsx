@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { MapPoint } from '../types';
-import { Trash2, MapPin, Download, Upload, X, Search, Hash, Crosshair, FileText, Eye } from 'lucide-react';
+import { Trash2, MapPin, Download, Upload, X, Search, Hash, Crosshair, FileText, Eye, Camera, Plus } from 'lucide-react';
 
 interface SidebarProps {
   points: MapPoint[];
@@ -49,6 +49,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const typo = (p.typology || '').toLowerCase();
     return desc.includes(term) || num.includes(term) || typo.includes(term);
   });
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!selectedPoint || !e.target.files || e.target.files.length === 0) return;
+      
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (event) => {
+          if (event.target?.result) {
+              const newImage = event.target.result as string;
+              const currentImages = selectedPoint.images || [];
+              onUpdatePoint(selectedPoint.id, { images: [...currentImages, newImage] });
+          }
+      };
+      reader.readAsDataURL(file);
+      e.target.value = ''; // Reset input
+  };
+
+  const removeImage = (indexToRemove: number) => {
+      if (!selectedPoint || !selectedPoint.images) return;
+      const newImages = selectedPoint.images.filter((_, index) => index !== indexToRemove);
+      onUpdatePoint(selectedPoint.id, { images: newImages });
+  };
 
   return (
       <div
@@ -103,7 +125,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Selected Point Editor */}
         {selectedPoint && (
-            <div className="p-4 bg-slate-50 border-b border-slate-200 animate-in slide-in-from-right-5 fade-in duration-200 flex-shrink-0">
+            <div className="p-4 bg-slate-50 border-b border-slate-200 animate-in slide-in-from-right-5 fade-in duration-200 flex-shrink-0 overflow-y-auto max-h-[50vh] custom-scrollbar">
                 <div className="flex justify-between items-center mb-2">
                     <span className="font-bold text-slate-700 text-sm">Modifica Punto (ID: {selectedPoint.number})</span>
                     <button 
@@ -143,7 +165,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                    <p className="text-[10px] text-slate-500 mt-1">Questo numero appare sulla mappa.</p>
                 </div>
 
-                <div className="space-y-2">
+                <div className="space-y-2 mb-4">
                     <div>
                         <label className="block text-xs font-medium text-slate-600 mb-1">Descrizione</label>
                         <textarea
@@ -154,6 +176,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         />
                     </div>
                 </div>
+
+                {/* Photo Section */}
+                <div className="mb-2">
+                    <label className="block text-xs font-bold text-slate-600 mb-2 uppercase flex justify-between items-center">
+                        Foto ({selectedPoint.images?.length || 0})
+                        <label className="cursor-pointer bg-slate-200 hover:bg-slate-300 text-slate-700 p-1 rounded-md transition-colors" title="Aggiungi Foto">
+                            <Plus className="w-4 h-4" />
+                            <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+                        </label>
+                    </label>
+                    
+                    {selectedPoint.images && selectedPoint.images.length > 0 ? (
+                        <div className="grid grid-cols-3 gap-2">
+                            {selectedPoint.images.map((img, idx) => (
+                                <div key={idx} className="relative group aspect-square bg-slate-100 rounded border border-slate-200 overflow-hidden">
+                                    <img src={img} alt={`Foto ${idx}`} className="w-full h-full object-cover" />
+                                    <button 
+                                        onClick={() => removeImage(idx)}
+                                        className="absolute top-0.5 right-0.5 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="Rimuovi"
+                                    >
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-300 rounded bg-slate-50 text-slate-400">
+                             <Camera className="w-6 h-6 mb-1" />
+                             <span className="text-xs">Nessuna foto</span>
+                        </div>
+                    )}
+                </div>
+
             </div>
         )}
 
@@ -211,6 +267,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <span className="text-[10px] text-gray-400 font-mono">ID: {point.number}</span>
                              {point.typology && point.typology !== point.number.toString() && (
                                 <span className="text-xs font-bold text-slate-700 bg-slate-100 px-1 rounded">#{point.typology}</span>
+                             )}
+                             {point.images && point.images.length > 0 && (
+                                <Camera className="w-3 h-3 text-slate-400 ml-1" />
                              )}
                         </div>
                         <p className={`text-xs truncate ${point.description ? 'text-slate-800' : 'text-slate-400 italic'}`}>
