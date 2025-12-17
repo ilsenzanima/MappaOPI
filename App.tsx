@@ -69,6 +69,7 @@ export default function App() {
   // --- Helpers ---
 
   const resetProject = () => {
+      // Data reset
       setPoints([]);
       setLines([]);
       setPlanName('');
@@ -76,17 +77,27 @@ export default function App() {
       setImageSrc(null);
       setImageName(null);
       setImgSize({ w: 0, h: 0 });
+      setCurrentProjectId(undefined);
+      
+      // UI reset
       setScale(1);
       setRotation(0);
       setMarkerScale(1);
-      setCurrentProjectId(undefined);
+      setSelectedPointId(null);
+      setSelectedLineId(null);
+      setMode('pan');
+      
+      // Cleanup temp states
       setPendingImageName(null);
       setTempImageFile(null);
+      setCreationStart(null);
+      setCurrentMousePos(null);
+      setDraggingPointId(null);
   };
 
   const handleNewProject = () => {
       if (imageSrc || points.length > 0) {
-          if (confirm('Sei sicuro di voler creare un nuovo progetto? Eventuali modifiche non salvate andranno perse.')) {
+          if (window.confirm('Sei sicuro di voler creare un nuovo progetto? Tutti i dati non salvati andranno persi.')) {
               resetProject();
           }
       } else {
@@ -172,6 +183,7 @@ export default function App() {
       setScale(1);
       setShowManagerModal(false);
       setMode('pan');
+      setSelectedPointId(null);
   };
 
   // --- Handlers: Image Upload & Setup ---
@@ -212,14 +224,9 @@ export default function App() {
         return;
     }
 
-    const fileArray = Array.from(files);
+    const fileArray: File[] = Array.from(files);
     let matchedCount = 0;
-    
-    // Create a copy of points map to update
-    const pointsMap = new Map(points.map(p => [p.number, p]));
-
-    // Regex to find point number: Look for "_NUMBER" followed by optional index and extension at end of string
-    // Matches: "P 0_1.jpg" -> 1, "P 0_1_2.jpg" -> 1, "Img_55.jpg" -> 55
+    const pointsMap = new Map<number, MapPoint>(points.map(p => [p.number, p]));
     const regex = /_(\d+)(?:_\d+)?\.[^.]+$/;
 
     const promises = fileArray.map(file => {
@@ -234,11 +241,9 @@ export default function App() {
                     reader.onload = (event) => {
                         if (event.target?.result && typeof event.target.result === 'string') {
                             const newImg = event.target.result;
-                            // Add to temp map
                             const p = pointsMap.get(pointNum);
                             if (p) {
                                 const existing = p.images || [];
-                                // Update the object in the map
                                 pointsMap.set(pointNum, {
                                     ...p,
                                     images: [...existing, newImg]
@@ -250,17 +255,15 @@ export default function App() {
                     };
                     reader.readAsDataURL(file);
                 } else {
-                    resolve(); // No point found with that number
+                    resolve();
                 }
             } else {
-                resolve(); // No number in filename
+                resolve();
             }
         });
     });
 
     await Promise.all(promises);
-
-    // Update state from the map
     setPoints(Array.from(pointsMap.values()));
     alert(`Caricamento completato! ${matchedCount} foto assegnate ai punti.`);
     e.target.value = '';
@@ -293,7 +296,6 @@ export default function App() {
   // --- Handlers: Map Interaction (Creation & Dragging) ---
 
   const handleMapMouseDown = (e: React.MouseEvent) => {
-      // Reposition now behaves like 'add' regarding mouse interactions
       if (mode === 'add' || mode === 'line' || mode === 'reposition') {
          if (!imageSrc || !containerRef.current) return;
          const coords = getRelativeCoordinates(e.clientX, e.clientY);
@@ -312,7 +314,6 @@ export default function App() {
       if (!creationStart) return;
       const endCoords = getRelativeCoordinates(e.clientX, e.clientY);
 
-      // Handle Repositioning
       if (mode === 'reposition' && selectedPointId) {
           const dx = endCoords.x - creationStart.x;
           const dy = endCoords.y - creationStart.y;
@@ -321,7 +322,6 @@ export default function App() {
           setPoints(prev => prev.map(p => {
               if (p.id === selectedPointId) {
                   if (dist > 1.0) {
-                      // Dragged: Anchor at start, badge at end
                       return {
                           ...p,
                           x: endCoords.x,
@@ -330,7 +330,6 @@ export default function App() {
                           targetY: creationStart.y
                       };
                   } else {
-                      // Clicked: Badge at click location, Anchor UNDERNEATH badge (so it's hidden but exists)
                       return {
                           ...p,
                           x: endCoords.x,
@@ -343,7 +342,7 @@ export default function App() {
               return p;
           }));
           
-          setMode('pan'); // Exit reposition mode
+          setMode('pan');
           setCreationStart(null);
           setCurrentMousePos(null);
           return;
@@ -353,14 +352,12 @@ export default function App() {
           const dx = endCoords.x - creationStart.x;
           const dy = endCoords.y - creationStart.y;
           const dist = Math.sqrt(dx*dx + dy*dy);
-
-          // Auto-fill typology with the next sequential number
           const nextNum = points.length + 1;
 
           const newPoint: MapPoint = {
               id: generateId(),
               number: nextNum,
-              typology: nextNum.toString(), // Default typology is same as ID
+              typology: nextNum.toString(),
               x: endCoords.x, 
               y: endCoords.y,
               description: '',
@@ -397,23 +394,19 @@ export default function App() {
       setCurrentMousePos(null);
   };
 
-  // --- Handlers: Markers & Lines ---
-
   const handleMarkerMouseDown = (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
       e.preventDefault();
-
       setSelectedPointId(id);
       if (mode === 'move') {
           setDraggingPointId(id);
-          setDragType('badge'); // The whole pill is draggable
+          setDragType('badge');
       }
   };
 
   const handleTargetMouseDown = (e: React.MouseEvent, id: string) => {
       e.stopPropagation();
       e.preventDefault();
-      
       setSelectedPointId(id);
       if (mode === 'move') {
           setDraggingPointId(id);
@@ -447,7 +440,6 @@ export default function App() {
         const { x, y } = getRelativeCoordinates(e.clientX, e.clientY);
         setPoints(prev => prev.map(p => {
              if (p.id !== draggingPointId) return p;
-             
              if (dragType === 'target') {
                  return {
                      ...p,
@@ -464,12 +456,10 @@ export default function App() {
         }));
     }
 
-    // Enable visual feedback for add, line AND reposition modes
     if ((mode === 'add' || mode === 'line' || mode === 'reposition') && creationStart && containerRef.current) {
         const coords = getRelativeCoordinates(e.clientX, e.clientY);
         setCurrentMousePos(coords);
     }
-
   }, [draggingPointId, dragType, rotation, scale, mode, creationStart]);
 
   const handleGlobalMouseUp = useCallback(() => {
@@ -544,121 +534,92 @@ export default function App() {
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target?.result as string);
+        
+        // Normalize the JSON structure: could be [{...}] or {...}
+        let reportData = null;
+        if (Array.isArray(json) && json.length > 0 && json[0].dati) {
+            reportData = json[0];
+        } else if (json.dati) {
+            reportData = json;
+        }
 
-        // CASE 0: n8n / Custom Report Format (Array with 'dati' inside)
-        // Expected format: [{ fileName: '...', dati: [ { "N Foto": 1... } ] }]
-        if (Array.isArray(json) && json.length > 0 && json[0].dati && Array.isArray(json[0].dati)) {
-            
+        if (reportData && Array.isArray(reportData.dati)) {
             let shouldMerge = false;
             if (points.length > 0) {
-                 // Enhanced confirmation logic for merging vs replacing
                  const wantToMerge = window.confirm(
                     `Rilevati punti esistenti.\n\nVUOI AGGIORNARE I DATI?\nPremendo OK: Aggiornerai solo descrizioni e tipologici dei punti corrispondenti (mantenendo foto e posizioni attuali).\nPremendo ANNULLA: Cancellerai tutto e importerai i nuovi punti da zero.`
                  );
-                 
-                 if (wantToMerge) {
-                    shouldMerge = true;
-                 } else {
+                 if (wantToMerge) shouldMerge = true;
+                 else {
                     if (!window.confirm("Sei sicuro di voler sovrascrivere tutto? Le foto e le posizioni attuali andranno perse.")) {
                         e.target.value = '';
                         return;
                     }
-                    shouldMerge = false;
                  }
             }
 
-            const rawData = json[0].dati;
+            const rawData = reportData.dati;
             
             if (shouldMerge) {
-                 // MERGE LOGIC
                  const updatedPoints = [...points];
                  let updatesCount = 0;
                  let newCount = 0;
 
-                 rawData.forEach((item: any) => {
+                 rawData.forEach((item: any, idx: number) => {
                      const num = parseInt(item['N Foto']);
                      if (isNaN(num)) return;
-
                      const existingIndex = updatedPoints.findIndex(p => p.number === num);
 
                      if (existingIndex !== -1) {
-                         // Update existing (Only descriptions/typology)
                          updatedPoints[existingIndex] = {
                              ...updatedPoints[existingIndex],
                              description: item['Descrizione Completa'] || updatedPoints[existingIndex].description,
-                             typology: item['N Tipologico'] || updatedPoints[existingIndex].typology
+                             typology: (item['N Tipologico'] || updatedPoints[existingIndex].typology).toString()
                          };
                          updatesCount++;
                      } else {
-                         // Add new point that wasn't there before
+                         // Grid positioning for new points
+                         const x = 5 + (newCount % 10) * 9;
+                         const y = 5 + Math.floor(newCount / 10) * 12;
                          updatedPoints.push({
                              id: generateId(),
                              number: num,
-                             typology: item['N Tipologico'] || '',
+                             typology: (item['N Tipologico'] || '').toString(),
                              description: item['Descrizione Completa'] || '',
-                             x: 2,
-                             y: 2,
+                             x, y,
                              createdAt: Date.now()
                          });
                          newCount++;
                      }
                  });
-                 
                  setPoints(updatedPoints);
-                 if (json[0].piano) setFloor(json[0].piano);
-                 alert(`Aggiornamento completato!\n${updatesCount} punti aggiornati.\n${newCount} nuovi punti aggiunti.`);
-
+                 if (reportData.piano) setFloor(reportData.piano);
+                 alert(`Aggiornamento completato!\n${updatesCount} punti aggiornati.\n${newCount} nuovi punti aggiunti (disposti in griglia).`);
             } else {
-                // REPLACE LOGIC (Original logic)
-                // 1. Find max sequential number
-                let maxNum = 0;
-                rawData.forEach((item: any) => {
-                    const num = parseInt(item['N Foto']);
-                    if (!isNaN(num) && num > maxNum) maxNum = num;
-                });
-
                 const newPoints: MapPoint[] = [];
-                
-                // 2. Loop from 1 to maxNum to ensure sequence
-                for (let i = 1; i <= maxNum; i++) {
-                    const item = rawData.find((d: any) => parseInt(d['N Foto']) === i);
-                    
-                    const x = 2; 
-                    const y = 2;
-
-                    if (item) {
-                        newPoints.push({
-                            id: generateId(),
-                            number: i,
-                            typology: item['N Tipologico'] || '',
-                            description: item['Descrizione Completa'] || '',
-                            x: x,
-                            y: y,
-                            createdAt: Date.now()
-                        });
-                    } else {
-                        newPoints.push({
-                            id: generateId(),
-                            number: i,
-                            typology: '',
-                            description: '',
-                            x: x,
-                            y: y,
-                            createdAt: Date.now()
-                        });
-                    }
-                }
-                
+                rawData.forEach((item: any, idx: number) => {
+                    const num = parseInt(item['N Foto']) || (idx + 1);
+                    // Distribute points in a grid starting from top-left (5,5)
+                    const x = 5 + (idx % 10) * 9;
+                    const y = 5 + Math.floor(idx / 10) * 12;
+                    newPoints.push({
+                        id: generateId(),
+                        number: num,
+                        typology: (item['N Tipologico'] || '').toString(),
+                        description: item['Descrizione Completa'] || '',
+                        x, y,
+                        createdAt: Date.now()
+                    });
+                });
                 setPoints(newPoints);
-                if (json[0].piano) setFloor(json[0].piano);
-                alert(`Importati ${newPoints.length} punti (incluso riempimento sequenziale). Punti posizionati a (0,0).`);
+                if (reportData.piano) setFloor(reportData.piano);
+                alert(`Importati ${newPoints.length} punti. Sono stati disposti in una griglia ordinata per facilitarne il posizionamento.`);
             }
-
             e.target.value = '';
             return;
         }
 
-        // CASE 1: Simple list of points (Legacy)
+        // Standard Legacy formats
         if (Array.isArray(json)) {
             if (points.length > 0) {
                 if (!window.confirm(`Hai importato una lista di ${json.length} punti. Vuoi sovrascrivere i punti attuali?`)) {
@@ -666,24 +627,24 @@ export default function App() {
                     return;
                 }
             }
-            
-            const importedPoints: MapPoint[] = json.map((item: any, index: number) => ({
-                id: generateId(),
-                number: item.number || (index + 1),
-                typology: (item.number || (index + 1)).toString(), // Default typology
-                description: item.description || '',
-                x: 50,
-                y: 50,
-                createdAt: Date.now()
-            }));
-
+            const importedPoints: MapPoint[] = json.map((item: any, index: number) => {
+                const x = 5 + (index % 10) * 9;
+                const y = 5 + Math.floor(index / 10) * 12;
+                return {
+                    id: generateId(),
+                    number: item.number || (index + 1),
+                    typology: (item.typology || item.number || (index + 1)).toString(),
+                    description: item.description || '',
+                    x, y,
+                    createdAt: Date.now()
+                };
+            });
             setPoints(importedPoints);
-            alert(`Importati ${importedPoints.length} punti. Sono stati posizionati al centro.`);
+            alert(`Importati ${importedPoints.length} punti.`);
             e.target.value = '';
             return;
         }
 
-        // CASE 2: Full Project State
         const projectState = json as ProjectState;
         if (projectState.points && Array.isArray(projectState.points)) {
             if (points.length > 0) {
@@ -692,12 +653,10 @@ export default function App() {
                     return;
                 }
             }
-            // Ensure typology exists for old backups
             const importedPoints = projectState.points.map(p => ({ 
                 ...p, 
-                typology: p.typology || p.number.toString() 
+                typology: (p.typology || p.number).toString() 
             }));
-            
             setPoints(importedPoints);
             setLines(projectState.lines || []);
             setPlanName(projectState.planName || 'Importato');
@@ -710,8 +669,6 @@ export default function App() {
                 setImageSrc(null); 
                 setImageName(null); 
                 setImgSize({ w: 0, h: 0 });
-            } else if (!imageName) {
-                setPendingImageName(projectState.imageName || 'unknown');
             }
         }
       } catch (err) {
@@ -755,67 +712,43 @@ export default function App() {
 
   return (
     <div className="flex flex-col h-screen w-full overflow-hidden bg-slate-100">
-      
       <Topbar 
-        mode={mode}
-        setMode={setMode}
-        scale={scale}
+        mode={mode} setMode={setMode} scale={scale}
         onZoomIn={() => setScale(s => Math.min(s + 0.2, 5))}
         onZoomOut={() => setScale(s => Math.max(s - 0.2, 0.1))}
         onResetZoom={() => { setScale(1); setRotation(0); }}
-        rotation={rotation}
-        setRotation={setRotation}
+        rotation={rotation} setRotation={setRotation}
         onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        activeLineColor={activeLineColor}
-        setActiveLineColor={setActiveLineColor}
-        onSaveProject={handleSaveProject}
-        onOpenProjectManager={() => setShowManagerModal(true)}
-        onExportImage={handleExportImage}
-        onExportPDF={handleExportPDF}
-        hasImage={!!imageSrc}
-        markerScale={markerScale}
+        activeLineColor={activeLineColor} setActiveLineColor={setActiveLineColor}
+        onSaveProject={handleSaveProject} onOpenProjectManager={() => setShowManagerModal(true)}
+        onExportImage={handleExportImage} onExportPDF={handleExportPDF}
+        hasImage={!!imageSrc} markerScale={markerScale}
         onIncreaseMarkerSize={() => setMarkerScale(s => Math.min(s + 0.2, 3))}
         onDecreaseMarkerSize={() => setMarkerScale(s => Math.max(s - 0.2, 0.5))}
-        onBulkImageUpload={handleBulkImageUpload}
-        onNewProject={handleNewProject}
+        onBulkImageUpload={handleBulkImageUpload} onNewProject={handleNewProject}
       />
-
       <div className="flex flex-1 relative overflow-hidden">
-          
           <div className="flex-1 relative bg-slate-200 overflow-hidden">
-             
-            {/* PDF Preview Modal */}
             {showPdfPreview && pdfPreviewUrl && (
                  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
                      <div className="bg-white w-full h-full max-w-6xl rounded-lg shadow-2xl flex flex-col overflow-hidden">
                          <div className="flex justify-between items-center p-3 border-b bg-slate-50">
                              <div className="flex items-center gap-4">
                                 <h3 className="font-bold text-slate-700">Anteprima Report PDF</h3>
-                                <a 
-                                    href={pdfPreviewUrl} 
-                                    target="_blank" 
-                                    rel="noreferrer"
-                                    className="flex items-center gap-2 text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded hover:bg-blue-200 transition-colors font-medium"
-                                >
-                                    <ExternalLink className="w-3 h-3" />
-                                    Apri in nuova scheda
+                                <a href={pdfPreviewUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-xs bg-blue-100 text-blue-700 px-3 py-1.5 rounded hover:bg-blue-200 transition-colors font-medium">
+                                    <ExternalLink className="w-3 h-3" /> Apri in nuova scheda
                                 </a>
                              </div>
-                             <button 
-                                 onClick={() => { setShowPdfPreview(false); URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }}
-                                 className="p-1 hover:bg-slate-200 rounded-full"
-                             >
+                             <button onClick={() => { setShowPdfPreview(false); URL.revokeObjectURL(pdfPreviewUrl); setPdfPreviewUrl(null); }} className="p-1 hover:bg-slate-200 rounded-full">
                                  <X className="w-6 h-6 text-slate-500" />
                              </button>
                          </div>
                          <div className="flex-1 bg-slate-200 relative">
                              <object data={pdfPreviewUrl} type="application/pdf" className="w-full h-full">
                                 <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 p-4 text-center">
-                                    <p className="mb-4 text-lg font-medium">Impossibile visualizzare l'anteprima qui.</p>
-                                    <p className="mb-6 text-sm opacity-80 max-w-md">Il tuo browser (es. Opera, Safari) potrebbe bloccare i PDF integrati. Usa il pulsante qui sotto per aprirlo.</p>
+                                    <p className="mb-4 text-lg font-medium">Impossibile visualizzare l'anteprima.</p>
                                     <a href={pdfPreviewUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg shadow-lg hover:bg-blue-700 font-bold transition-transform hover:scale-105">
-                                        <ExternalLink className="w-5 h-5" />
-                                        Apri PDF
+                                        <ExternalLink className="w-5 h-5" /> Apri PDF
                                     </a>
                                 </div>
                              </object>
@@ -823,7 +756,6 @@ export default function App() {
                      </div>
                  </div>
             )}
-
             {showProjectModal && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md">
@@ -831,17 +763,11 @@ export default function App() {
                         <div className="space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-slate-600 mb-1">Nome Planimetria</label>
-                                <input 
-                                    type="text" value={planName} onChange={(e) => setPlanName(e.target.value)}
-                                    className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                                />
+                                <input type="text" value={planName} onChange={(e) => setPlanName(e.target.value)} className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"/>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-600 mb-1">Piano</label>
-                                <input 
-                                    type="text" value={floor} onChange={(e) => setFloor(e.target.value)}
-                                    className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"
-                                />
+                                <input type="text" value={floor} onChange={(e) => setFloor(e.target.value)} className="w-full p-2 border border-slate-300 rounded focus:ring-2 focus:ring-blue-500 bg-white text-slate-900"/>
                             </div>
                             <div className="pt-4 flex justify-end gap-2">
                                 <button onClick={() => setShowProjectModal(false)} className="px-4 py-2 text-slate-500 hover:text-slate-700">Annulla</button>
@@ -851,13 +777,7 @@ export default function App() {
                     </div>
                 </div>
             )}
-
-            <ProjectManager 
-                isOpen={showManagerModal} 
-                onClose={() => setShowManagerModal(false)}
-                onLoadProject={handleLoadSavedProject}
-            />
-
+            <ProjectManager isOpen={showManagerModal} onClose={() => setShowManagerModal(false)} onLoadProject={handleLoadSavedProject}/>
             {pendingImageName && !showProjectModal && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md text-center">
@@ -871,7 +791,6 @@ export default function App() {
                     </div>
                 </div>
             )}
-
             {!imageSrc && !pendingImageName && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 z-0 p-8 text-center m-8 rounded-xl border-4 border-dashed border-slate-300">
                     <Maximize className="w-20 h-20 mb-4 text-slate-300" />
@@ -883,153 +802,56 @@ export default function App() {
                     </label>
                 </div>
             )}
-
             {imageSrc && (
-                <div 
-                    ref={containerWrapperRef}
+                <div ref={containerWrapperRef} onMouseDown={handleContainerMouseDown} onMouseMove={handleContainerMouseMove}
                     className={`absolute inset-0 overflow-auto bg-slate-200 grid place-items-center
                         ${mode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : ''}
                         ${(mode === 'add' || mode === 'line' || mode === 'reposition') ? 'cursor-crosshair' : ''}
                         ${mode === 'move' ? 'cursor-default' : ''}
                     `}
-                    onMouseDown={handleContainerMouseDown}
-                    onMouseMove={handleContainerMouseMove}
                 >
-                    <div 
-                        style={{ 
-                            width: `${imgSize.w * scale}px`, 
-                            height: `${imgSize.h * scale}px`,
-                        }}
-                        className="relative shadow-2xl bg-white select-none flex-none"
-                    >
-                        <div 
-                            ref={containerRef} 
-                            className="w-full h-full relative" 
-                            style={{ transform: `rotate(${rotation}deg)` }}
-                            onMouseDown={handleMapMouseDown}
-                            onMouseUp={handleMapMouseUp}
-                        >
+                    <div style={{ width: `${imgSize.w * scale}px`, height: `${imgSize.h * scale}px` }} className="relative shadow-2xl bg-white select-none flex-none">
+                        <div ref={containerRef} className="w-full h-full relative" style={{ transform: `rotate(${rotation}deg)` }} onMouseDown={handleMapMouseDown} onMouseUp={handleMapMouseUp}>
                             <img src={imageSrc} alt="Planimetria" className="w-full h-full object-contain pointer-events-none block" draggable={false} />
-                            
                             <svg className="absolute inset-0 w-full h-full z-0 pointer-events-none">
                                 {lines.map(line => (
                                     <g key={line.id} className="pointer-events-auto cursor-pointer" onClick={(e) => handleLineClick(e, line.id)}>
-                                        <line 
-                                            x1={`${line.startX}%`} y1={`${line.startY}%`} 
-                                            x2={`${line.endX}%`} y2={`${line.endY}%`} 
-                                            stroke="transparent" strokeWidth={15 * markerScale} 
-                                        />
-                                        <line 
-                                            x1={`${line.startX}%`} y1={`${line.startY}%`} 
-                                            x2={`${line.endX}%`} y2={`${line.endY}%`} 
-                                            stroke={line.color} strokeWidth={3 * markerScale} 
-                                            strokeOpacity={0.8}
-                                            strokeLinecap="round"
-                                            className={selectedLineId === line.id ? 'filter drop-shadow-[0_0_2px_rgba(0,0,0,0.5)]' : ''}
-                                        />
-                                        {selectedLineId === line.id && (
-                                            <line 
-                                                x1={`${line.startX}%`} y1={`${line.startY}%`} 
-                                                x2={`${line.endX}%`} y2={`${line.endY}%`} 
-                                                stroke="white" strokeWidth={1} strokeDasharray="4,4"
-                                            />
-                                        )}
+                                        <line x1={`${line.startX}%`} y1={`${line.startY}%`} x2={`${line.endX}%`} y2={`${line.endY}%`} stroke="transparent" strokeWidth={15 * markerScale} />
+                                        <line x1={`${line.startX}%`} y1={`${line.startY}%`} x2={`${line.endX}%`} y2={`${line.endY}%`} stroke={line.color} strokeWidth={3 * markerScale} strokeOpacity={0.8} strokeLinecap="round" className={selectedLineId === line.id ? 'filter drop-shadow-[0_0_2px_rgba(0,0,0,0.5)]' : ''}/>
                                     </g>
                                 ))}
-
                                 {mode === 'line' && creationStart && currentMousePos && (
-                                    <line 
-                                        x1={`${creationStart.x}%`} y1={`${creationStart.y}%`} 
-                                        x2={`${currentMousePos.x}%`} y2={`${currentMousePos.y}%`} 
-                                        stroke={activeLineColor} strokeWidth={3 * markerScale} strokeOpacity={0.6}
-                                    />
+                                    <line x1={`${creationStart.x}%`} y1={`${creationStart.y}%`} x2={`${currentMousePos.x}%`} y2={`${currentMousePos.y}%`} stroke={activeLineColor} strokeWidth={3 * markerScale} strokeOpacity={0.6}/>
                                 )}
-
-                                {points.map(p => {
-                                    if (p.targetX !== undefined && p.targetY !== undefined && 
-                                        (Math.abs(p.targetX - p.x) > 0.1 || Math.abs(p.targetY - p.y) > 0.1)) {
-                                        return (
-                                            <g key={`line-${p.id}`}>
-                                                <line 
-                                                    x1={`${p.targetX}%`} y1={`${p.targetY}%`} 
-                                                    x2={`${p.x}%`} y2={`${p.y}%`} 
-                                                    stroke="#dc2626" strokeWidth={2 * markerScale} strokeLinecap="round" 
-                                                />
-                                                <circle 
-                                                    cx={`${p.targetX}%`} cy={`${p.targetY}%`} r={3 * markerScale} fill="#dc2626" 
-                                                    className={mode === 'move' ? 'cursor-move pointer-events-auto hover:fill-blue-600' : ''}
-                                                    onMouseDown={(e) => handleTargetMouseDown(e, p.id)}
-                                                />
-                                            </g>
-                                        );
-                                    }
-                                    return null;
-                                })}
-                                
-                                {/* Visual feedback for Add AND Reposition modes */}
+                                {points.map(p => (p.targetX !== undefined && p.targetY !== undefined && (Math.abs(p.targetX - p.x) > 0.1 || Math.abs(p.targetY - p.y) > 0.1)) ? (
+                                    <g key={`line-${p.id}`}>
+                                        <line x1={`${p.targetX}%`} y1={`${p.targetY}%`} x2={`${p.x}%`} y2={`${p.y}%`} stroke="#dc2626" strokeWidth={2 * markerScale} strokeLinecap="round" />
+                                        <circle cx={`${p.targetX}%`} cy={`${p.targetY}%`} r={3 * markerScale} fill="#dc2626" className={mode === 'move' ? 'cursor-move pointer-events-auto hover:fill-blue-600' : ''} onMouseDown={(e) => handleTargetMouseDown(e, p.id)}/>
+                                    </g>
+                                ) : null)}
                                 {(mode === 'add' || mode === 'reposition') && creationStart && currentMousePos && (
                                      <g>
-                                        <line 
-                                            x1={`${creationStart.x}%`} y1={`${creationStart.y}%`} 
-                                            x2={`${currentMousePos.x}%`} y2={`${currentMousePos.y}%`} 
-                                            stroke="#dc2626" strokeWidth={2 * markerScale} strokeDasharray="5,5"
-                                        />
+                                        <line x1={`${creationStart.x}%`} y1={`${creationStart.y}%`} x2={`${currentMousePos.x}%`} y2={`${currentMousePos.y}%`} stroke="#dc2626" strokeWidth={2 * markerScale} strokeDasharray="5,5"/>
                                         <circle cx={`${creationStart.x}%`} cy={`${creationStart.y}%`} r={3 * markerScale} fill="#dc2626" />
                                      </g>
                                 )}
                             </svg>
-                            
                             {selectedLineId && (() => {
                                 const line = lines.find(l => l.id === selectedLineId);
                                 if (!line) return null;
-                                const midX = (line.startX + line.endX) / 2;
-                                const midY = (line.startY + line.endY) / 2;
                                 return (
-                                    <button
-                                        onClick={() => handleDeleteLine(line.id)}
-                                        className="absolute z-20 bg-white text-red-600 rounded-full p-1 shadow-md border border-red-200 hover:bg-red-50"
-                                        style={{ left: `${midX}%`, top: `${midY}%`, transform: 'translate(-50%, -50%)' }}
-                                        title="Elimina Linea"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    <button onClick={() => handleDeleteLine(line.id)} className="absolute z-20 bg-white text-red-600 rounded-full p-1 shadow-md border border-red-200 hover:bg-red-50" style={{ left: `${(line.startX + line.endX) / 2}%`, top: `${(line.startY + line.endY) / 2}%`, transform: 'translate(-50%, -50%)' }}><Trash2 className="w-4 h-4" /></button>
                                 );
                             })()}
-
                             {points.map((point) => (
-                                <Marker
-                                    key={point.id}
-                                    point={point}
-                                    scale={scale}
-                                    markerScale={markerScale}
-                                    isSelected={selectedPointId === point.id}
-                                    onMouseDown={handleMarkerMouseDown}
-                                    onDelete={handleDeletePoint}
-                                />
+                                <Marker key={point.id} point={point} scale={scale} markerScale={markerScale} isSelected={selectedPointId === point.id} onMouseDown={handleMarkerMouseDown} onDelete={handleDeletePoint} />
                             ))}
                         </div>
                     </div>
                 </div>
             )}
           </div>
-
-          <Sidebar 
-            points={points}
-            isOpen={isSidebarOpen}
-            onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
-            onDeletePoint={handleDeletePoint}
-            onSelectPoint={setSelectedPointId}
-            onUpdatePoint={updatePoint}
-            onRepositionPoint={handleRepositionPoint}
-            selectedPointId={selectedPointId}
-            onExportJSON={handleExportJSON}
-            onImportJSON={handleImportJSON}
-            onPreviewPDF={handlePreviewPDF}
-            imageName={imageName}
-            planName={planName}
-            floor={floor}
-            isRepositioning={mode === 'reposition'}
-          />
+          <Sidebar points={points} isOpen={isSidebarOpen} onToggle={() => setIsSidebarOpen(!isSidebarOpen)} onDeletePoint={handleDeletePoint} onSelectPoint={setSelectedPointId} onUpdatePoint={updatePoint} onRepositionPoint={handleRepositionPoint} selectedPointId={selectedPointId} onExportJSON={handleExportJSON} onImportJSON={handleImportJSON} onPreviewPDF={handlePreviewPDF} imageName={imageName} planName={planName} floor={floor} isRepositioning={mode === 'reposition'} />
       </div>
     </div>
   );
