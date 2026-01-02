@@ -9,11 +9,16 @@ import { Maximize, X, Loader2 } from 'lucide-react';
 import { saveProject } from './db';
 import { renderMapToBlob, generatePDF, convertPdfToImage } from './utils';
 
-const generateId = () => {
+// Helper per generare ID sicuro anche in contesti non HTTPS
+const generateSafeId = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
-        return crypto.randomUUID();
+        try {
+            return crypto.randomUUID();
+        } catch (e) {
+            // Fallback se fallisce per contesto non sicuro
+        }
     }
-    return Math.random().toString(36).substring(2, 15);
+    return 'id-' + Date.now() + '-' + Math.random().toString(36).substring(2, 11);
 };
 
 export default function App() {
@@ -40,7 +45,6 @@ export default function App() {
   const [showProjectModal, setShowProjectModal] = useState(false); 
   const [showManagerModal, setShowManagerModal] = useState(false); 
   const [tempImageFile, setTempImageFile] = useState<File | null>(null);
-  const [pendingImageName, setPendingImageName] = useState<string | null>(null);
 
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
@@ -135,10 +139,67 @@ export default function App() {
             imageData: imageSrc
         });
         setCurrentProjectId(id);
-        alert('Progetto salvato nel database locale.');
-    } catch (e) {
-        alert('Errore di salvataggio.');
+        alert('Progetto salvato con successo!');
+    } catch (e: any) {
+        console.error("Errore salvataggio IndexedDB:", e);
+        if (e.name === 'QuotaExceededError') {
+            alert("Errore: Spazio nel browser esaurito. Elimina vecchi progetti.");
+        } else {
+            alert(`Errore di salvataggio: ${e.message || 'Errore imprevisto'}`);
+        }
     }
+  };
+
+  const handleBulkImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setIsProcessingFile(true); // Usiamo il loader per dare feedback
+    
+    // Cloniamo lo stato attuale dei punti
+    const updatedPoints = JSON.parse(JSON.stringify(points)) as MapPoint[];
+    let matchedCount = 0;
+
+    for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // RegEx migliorata per pescare il numero del punto:
+        // Cerca l'ultimo numero prima dell'estensione (es: "sopralluogo_52.jpg" o "P4_52.png")
+        const match = file.name.match(/_(\d+)(?:_\d+)?\.[^.]+$/) || file.name.match(/(\d+)\.[^.]+$/);
+        
+        if (match) {
+            const pointNumber = parseInt(match[1], 10);
+            const pointIndex = updatedPoints.findIndex(p => p.number === pointNumber);
+            
+            if (pointIndex !== -1) {
+                const reader = new FileReader();
+                const dataUrl = await new Promise<string>((resolve) => {
+                    reader.onload = (event) => resolve(event.target?.result as string);
+                    reader.readAsDataURL(file);
+                });
+                
+                if (!updatedPoints[pointIndex].images) {
+                    updatedPoints[pointIndex].images = [];
+                }
+                
+                // Evitiamo duplicati basati sul contenuto (opzionale)
+                if (!updatedPoints[pointIndex].images!.includes(dataUrl)) {
+                    updatedPoints[pointIndex].images!.push(dataUrl);
+                    matchedCount++;
+                }
+            }
+        }
+    }
+
+    if (matchedCount > 0) {
+        setPoints(updatedPoints);
+        alert(`Caricate e associate ${matchedCount} foto ai punti corrispondenti.`);
+    } else {
+        alert("Nessuna foto associata. Assicurati che i file abbiano il numero del punto nel nome (es: P4_52.jpg).");
+    }
+    
+    setIsProcessingFile(false);
+    e.target.value = '';
   };
 
   const handleLoadSavedProject = async (p: SavedProject) => {
@@ -168,17 +229,15 @@ export default function App() {
             const content = event.target?.result as string;
             const data = JSON.parse(content);
 
-            // Caso 1: Formato Report personalizzato (con la chiave "dati")
             if (data.dati && Array.isArray(data.dati)) {
                 if (!imageSrc) {
-                    alert("Carica prima una planimetria per poter importare i dati del report.");
+                    alert("Carica prima una planimetria.");
                     return;
                 }
                 const importedPoints: MapPoint[] = data.dati.map((item: any, index: number) => ({
-                    id: generateId(),
+                    id: generateSafeId(),
                     number: item["N Foto"] || (index + 1),
                     typology: item["N Tipologico"] || "",
-                    // Poiché mancano le coordinate, li mettiamo in una griglia in alto a sinistra
                     x: 5 + (index % 10) * 4, 
                     y: 5 + Math.floor(index / 10) * 4,
                     description: item["Descrizione Completa"] || "",
@@ -187,9 +246,8 @@ export default function App() {
                 setPoints(importedPoints);
                 if (data.piano) setFloor(data.piano);
                 if (data.fileName) setPlanName(data.fileName.replace('.json', ''));
-                alert(`Importati ${importedPoints.length} punti dal report. Trascinali nella posizione corretta.`);
+                alert(`Importati ${importedPoints.length} punti.`);
             } 
-            // Caso 2: Formato interno SavedProject
             else if (data.points && Array.isArray(data.points)) {
                 setPoints(data.points);
                 setLines(data.lines || []);
@@ -197,14 +255,10 @@ export default function App() {
                 if (data.floor) setFloor(data.floor);
                 if (data.rotation !== undefined) setRotation(data.rotation);
                 if (data.markerScale !== undefined) setMarkerScale(data.markerScale);
-                alert("Progetto importato correttamente.");
-            }
-            else {
-                alert("Formato JSON non riconosciuto.");
+                alert("Progetto caricato.");
             }
         } catch (err) {
-            console.error(err);
-            alert("Errore durante la lettura del file JSON. Assicurati che il formato sia corretto.");
+            alert("Errore lettura JSON.");
         }
     };
     reader.readAsText(file);
@@ -248,8 +302,7 @@ export default function App() {
                 setCurrentProjectId(undefined);
             }
         } catch (err) {
-            console.error(err);
-            alert("Errore durante il caricamento del file.");
+            alert("Errore caricamento.");
         } finally {
             setIsProcessingFile(false);
         }
@@ -286,7 +339,7 @@ export default function App() {
           const dist = Math.sqrt(dx*dx + dy*dy);
           const nextNum = points.length + 1;
           const newPoint: MapPoint = {
-              id: generateId(),
+              id: generateSafeId(),
               number: nextNum,
               typology: '',
               x: endCoords.x, y: endCoords.y,
@@ -299,7 +352,7 @@ export default function App() {
           setSelectedPointId(newPoint.id);
       } else if (mode === 'line') {
           setLines(prev => [...prev, {
-              id: generateId(),
+              id: generateSafeId(),
               startX: creationStart.x, startY: creationStart.y,
               endX: endCoords.x, endY: endCoords.y,
               color: activeLineColor
@@ -374,7 +427,7 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-screen w-full overflow-hidden bg-slate-100 font-sans">
+    <div className="flex flex-col h-screen w-full overflow-hidden bg-slate-100 font-sans text-slate-900">
       <Topbar 
         mode={mode} setMode={setMode} scale={scale}
         onZoomIn={() => setScale(s => Math.min(s + 0.2, 5))}
@@ -385,13 +438,13 @@ export default function App() {
         activeLineColor={activeLineColor} setActiveLineColor={setActiveLineColor}
         onSaveProject={handleSaveProject} onOpenProjectManager={() => setShowManagerModal(true)}
         onExportImage={() => renderMapToBlob(imageSrc!, points, lines, markerScale).then(b => {
-             if (b) { const url = URL.createObjectURL(b); const a = document.createElement('a'); a.href = url; a.download = 'export_cantiere.jpg'; a.click(); }
+             if (b) { const url = URL.createObjectURL(b); const a = document.createElement('a'); a.href = url; a.download = 'export_mappa.jpg'; a.click(); }
         })} 
         onExportPDF={() => generatePDF(imageSrc!, points, lines, markerScale, planName)}
         hasImage={!!imageSrc} markerScale={markerScale}
         onIncreaseMarkerSize={() => setMarkerScale(s => Math.min(s + 0.2, 3))}
         onDecreaseMarkerSize={() => setMarkerScale(s => Math.max(s - 0.2, 0.5))}
-        onBulkImageUpload={(e) => {}} onNewProject={handleNewProject}
+        onBulkImageUpload={handleBulkImageUpload} onNewProject={handleNewProject}
       />
       <div className="flex flex-1 relative overflow-hidden">
           <div className="flex-1 relative bg-slate-200 overflow-hidden">
@@ -399,7 +452,7 @@ export default function App() {
                 <div className="fixed inset-0 z-[110] flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
                     <div className="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center gap-4">
                         <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
-                        <span className="font-bold text-slate-700">Conversione planimetria in corso...</span>
+                        <span className="font-bold text-slate-700">Elaborazione file...</span>
                     </div>
                 </div>
             )}
@@ -420,17 +473,17 @@ export default function App() {
                         <h2 className="text-xl font-bold mb-4 text-slate-800">Nuova Planimetria</h2>
                         <div className="space-y-4">
                             <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Nome Progetto / Cantiere</label>
-                                <input type="text" value={planName} onChange={(e) => setPlanName(e.target.value)} placeholder="Es. Condominio Roma" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Cantiere</label>
+                                <input type="text" value={planName} onChange={(e) => setPlanName(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
                             </div>
                             <div>
-                                <label className="block text-[10px] font-black text-slate-400 uppercase mb-1">Piano / Area</label>
-                                <input type="text" value={floor} onChange={(e) => setFloor(e.target.value)} placeholder="Es. Piano Terra" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
+                                <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Piano</label>
+                                <input type="text" value={floor} onChange={(e) => setFloor(e.target.value)} className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"/>
                             </div>
                         </div>
                         <div className="flex justify-end gap-3 mt-6">
-                            <button onClick={() => setShowProjectModal(false)} className="px-4 py-2 font-bold text-slate-500 hover:text-slate-700">Annulla</button>
-                            <button onClick={confirmProjectDetails} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg transition-all active:scale-95">Inizia Mappatura</button>
+                            <button onClick={() => setShowProjectModal(false)} className="px-4 py-2 font-bold text-slate-500">Annulla</button>
+                            <button onClick={confirmProjectDetails} className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg">Inizia</button>
                         </div>
                     </div>
                 </div>
@@ -440,10 +493,9 @@ export default function App() {
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-8 text-center m-8 rounded-2xl border-4 border-dashed border-slate-300 bg-white/60">
                     <Maximize className="w-20 h-20 mb-4 text-slate-300" />
                     <h1 className="text-3xl font-black text-slate-800 mb-2">SiteMapper Pro</h1>
-                    <p className="max-w-md mb-8 text-slate-500 font-medium">L'assistente digitale per la gestione mappature e rilievi tecnici in cantiere.</p>
-                    <label className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 px-10 rounded-2xl shadow-xl cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-3">
+                    <label className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 px-10 rounded-2xl shadow-xl cursor-pointer flex items-center gap-3">
                         <Maximize className="w-5 h-5" />
-                        Apri Planimetria (Immagine o PDF)
+                        Apri Planimetria o PDF
                         <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleImageUploadStart} />
                     </label>
                 </div>
