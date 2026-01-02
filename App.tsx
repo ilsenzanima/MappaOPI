@@ -5,9 +5,9 @@ import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { ProjectManager } from './components/ProjectManager';
 import { MapPoint, ProjectState, InteractionMode, SavedProject, MapLine, LineColor } from './types';
-import { Maximize, X } from 'lucide-react';
+import { Maximize, X, Loader2 } from 'lucide-react';
 import { saveProject } from './db';
-import { renderMapToBlob, generatePDF } from './utils';
+import { renderMapToBlob, generatePDF, convertPdfToImage } from './utils';
 
 const generateId = () => {
     if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -44,6 +44,7 @@ export default function App() {
 
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [isProcessingFile, setIsProcessingFile] = useState(false);
 
   const [draggingPointId, setDraggingPointId] = useState<string | null>(null);
   const [dragType, setDragType] = useState<'badge' | 'target'>('badge');
@@ -214,44 +215,44 @@ export default function App() {
     const file = e.target.files?.[0];
     if (file) {
         setTempImageFile(file);
-        if (pendingImageName) {
-            const reader = new FileReader();
-            reader.onload = async (event) => {
-                if (typeof event.target?.result === 'string') {
-                    setImageSrc(event.target.result);
-                    const dims = await getImageDimensions(event.target.result);
-                    setImgSize(dims);
-                    setImageName(file.name);
-                    setPendingImageName(null);
-                    setTempImageFile(null);
-                }
-            };
-            reader.readAsDataURL(file);
-        } else {
-            setPlanName(file.name.split('.')[0]);
-            setShowProjectModal(true);
-        }
+        setPlanName(file.name.split('.')[0]);
+        setShowProjectModal(true);
     }
     e.target.value = '';
   };
 
-  const confirmProjectDetails = () => {
+  const confirmProjectDetails = async () => {
     if (tempImageFile) {
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-            if (typeof event.target?.result === 'string') {
-                setImageSrc(event.target.result);
-                const dims = await getImageDimensions(event.target.result);
+        setIsProcessingFile(true);
+        try {
+            let dataUrl = '';
+            if (tempImageFile.type === 'application/pdf') {
+                dataUrl = await convertPdfToImage(tempImageFile);
+            } else {
+                const reader = new FileReader();
+                dataUrl = await new Promise((resolve) => {
+                    reader.onload = (e) => resolve(e.target?.result as string);
+                    reader.readAsDataURL(tempImageFile);
+                });
+            }
+
+            if (dataUrl) {
+                setImageSrc(dataUrl);
+                const dims = await getImageDimensions(dataUrl);
                 setImgSize(dims);
                 setImageName(tempImageFile.name);
                 setPoints([]);
                 setLines([]);
                 setScale(1);
                 setRotation(0);
-                setCurrentProjectId(undefined); 
+                setCurrentProjectId(undefined);
             }
-        };
-        reader.readAsDataURL(tempImageFile);
+        } catch (err) {
+            console.error(err);
+            alert("Errore durante il caricamento del file.");
+        } finally {
+            setIsProcessingFile(false);
+        }
     }
     setShowProjectModal(false);
     setTempImageFile(null);
@@ -394,6 +395,14 @@ export default function App() {
       />
       <div className="flex flex-1 relative overflow-hidden">
           <div className="flex-1 relative bg-slate-200 overflow-hidden">
+            {isProcessingFile && (
+                <div className="fixed inset-0 z-[110] flex flex-col items-center justify-center bg-black/40 backdrop-blur-sm">
+                    <div className="bg-white p-6 rounded-2xl shadow-xl flex flex-col items-center gap-4">
+                        <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+                        <span className="font-bold text-slate-700">Conversione planimetria in corso...</span>
+                    </div>
+                </div>
+            )}
             {showPdfPreview && pdfPreviewUrl && (
                  <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4">
                      <div className="bg-white w-full h-full max-w-6xl rounded-lg flex flex-col overflow-hidden">
@@ -434,8 +443,8 @@ export default function App() {
                     <p className="max-w-md mb-8 text-slate-500 font-medium">L'assistente digitale per la gestione mappature e rilievi tecnici in cantiere.</p>
                     <label className="bg-slate-900 hover:bg-slate-800 text-white font-bold py-4 px-10 rounded-2xl shadow-xl cursor-pointer transition-all hover:scale-105 active:scale-95 flex items-center gap-3">
                         <Maximize className="w-5 h-5" />
-                        Apri Planimetria (Immagine)
-                        <input type="file" accept="image/*" className="hidden" onChange={handleImageUploadStart} />
+                        Apri Planimetria (Immagine o PDF)
+                        <input type="file" accept="image/*,application/pdf" className="hidden" onChange={handleImageUploadStart} />
                     </label>
                 </div>
             )}

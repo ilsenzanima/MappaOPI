@@ -1,5 +1,7 @@
 {
   "name": "SiteMapper Pro",
   "description": "Applicazione per la mappatura di cantieri. Carica planimetrie, aggiungi punti di interesse, gestisci posizioni e salva/esporta i dati.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "geolocation"
+  ]
 }

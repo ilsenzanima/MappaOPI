@@ -1,6 +1,37 @@
 
 import { MapPoint, MapLine } from './types';
 import { jsPDF } from "jspdf";
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configurazione worker PDF.js per ESM
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://esm.sh/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.mjs`;
+
+/**
+ * Converts the first page of a PDF file into a high-res DataURL image.
+ */
+export const convertPdfToImage = async (file: File): Promise<string> => {
+    const arrayBuffer = await file.arrayBuffer();
+    const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+    const pdf = await loadingTask.promise;
+    const page = await pdf.getPage(1);
+    
+    // Use a scale of 2 or 3 for high resolution blueprints
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    
+    if (!context) throw new Error("Could not create canvas context");
+    
+    canvas.height = viewport.height;
+    canvas.width = viewport.width;
+    
+    await page.render({
+        canvasContext: context,
+        viewport: viewport
+    }).promise;
+    
+    return canvas.toDataURL('image/jpeg', 0.9);
+};
 
 /**
  * Helper to load an image from URL/String
